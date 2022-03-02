@@ -90,7 +90,7 @@ export async function getParachainIdFromSpec(
 	});
 
 	const spec = JSON.parse(data);
-	
+
 	// Some parachains are still using snake_case format
 	return spec.paraId || spec.para_id;
 }
@@ -332,4 +332,10 @@ export function killAll() {
 	for (const key of Object.keys(p)) {
 		p[key].kill();
 	}
+}
+
+// Kill a process spawned and tracked by this file.
+export function killProcess(key: string | number) {
+	p[key].kill();
+	console.log(`Process ${key} stopped.`);
 }

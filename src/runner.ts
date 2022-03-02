@@ -9,6 +9,7 @@ import {
 	exportGenesisState,
 	startSimpleCollator,
 	getParachainIdFromSpec,
+	killProcess,
 } from "./spawn";
 import { connect, setBalance } from "./rpc";
 import { checkConfig } from "./check";
@@ -32,6 +33,7 @@ import type {
 	ResolvedSimpleParachainConfig,
 	HrmpChannelsConfig,
 	ResolvedLaunchConfig,
+	RelayChainConfig,
 } from "./types";
 import { keys as libp2pKeys } from "libp2p-crypto";
 import { hexAddPrefix, hexStripPrefix, hexToU8a } from "@polkadot/util";
@@ -52,15 +54,19 @@ function loadTypeDef(types: string | object): object {
 	}
 }
 
+function delay(ms: number) {
+	return new Promise( resolve => setTimeout(resolve, ms) );
+}
+
 // keep track of registered parachains
 let registeredParachains: { [key: string]: boolean } = {};
 
-export async function run(config_dir: string, rawConfig: LaunchConfig) {
+export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<ResolvedLaunchConfig|null> {
 	// We need to reset that variable when running a new network
 	registeredParachains = {};
 	// Verify that the `config.json` has all the expected properties.
 	if (!checkConfig(rawConfig)) {
-		return;
+		return null;
 	}
 	const config = await resolveParachainId(config_dir, rawConfig);
 	var bootnodes = await generateNodeKeys(config);
@@ -181,6 +187,146 @@ export async function run(config_dir: string, rawConfig: LaunchConfig) {
 	await relayChainApi.disconnect();
 
 	console.log("🚀 POLKADOT LAUNCH COMPLETE 🚀");
+
+	return config;
+}
+
+interface UpgradableRelayChainConfig extends RelayChainConfig { // todo displace elsewhere?
+	upgradeBin: string;
+}
+
+interface UpgradableResolvedParachainConfig extends ResolvedParachainConfig { // todo displace elsewhere?
+	upgradeBin: string;
+}
+
+export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchConfig, epochTime: number) {
+	const config = await run(config_dir, rawConfig);
+
+	if (!config) {
+		return;
+	}
+
+	console.log("\nNow preparing for runtime upgrade testing..."); // todo decorate
+
+	const relay_chain = config.relaychain as UpgradableRelayChainConfig;
+	if (!relay_chain.upgradeBin) {
+		console.error("Config file is missing its 'upgradeBin' argument for the relay chain! \
+		Please provide the path to the modified binary.");
+		process.exit();
+	}
+	const upgraded_relay_chain_bin = resolve(config_dir, relay_chain.upgradeBin);
+
+	if (!fs.existsSync(upgraded_relay_chain_bin)) {
+		console.error("Upgraded relay chain binary does not exist: ", upgraded_relay_chain_bin);
+		process.exit();
+	}
+
+	const chain = config.relaychain.chain;
+	await generateChainSpec(upgraded_relay_chain_bin, chain);
+	// -- Start Chain Spec Modify --
+	clearAuthorities(`${chain}.json`);
+	for (const node of config.relaychain.nodes) {
+		await addAuthority(`${chain}.json`, node.name);
+	}
+	if (config.relaychain.genesis) {
+		await changeGenesisConfig(`${chain}.json`, config.relaychain.genesis);
+	}
+	await addParachainsToGenesis(
+		config_dir,
+		`${chain}.json`,
+		config.parachains,
+		config.simpleParachains
+	);
+	if (config.hrmpChannels) {
+		await addHrmpChannelsToGenesis(`${chain}.json`, config.hrmpChannels);
+	}
+	var bootnodes = await generateNodeKeys(config);
+	addBootNodes(`${chain}.json`, bootnodes);
+	// -- End Chain Spec Modify --
+	await generateChainSpecRaw(upgraded_relay_chain_bin, chain);
+	const spec = resolve(`${chain}-raw.json`);
+
+	for (const node of config.relaychain.nodes) {
+		console.log("\nStarting timeout for the epoch change..."); // todo decorate
+		await delay(epochTime);
+
+		const { name, wsPort, rpcPort, port, flags, basePath, nodeKey } = node;
+
+		console.log("Stopping the next relay node...");
+		killProcess(node.name);
+
+		console.log(
+			`Starting Relaychain Node ${name}... wsPort: ${wsPort} rpcPort: ${rpcPort} port: ${port} nodeKey: ${nodeKey}`
+		);
+		// We spawn a `child_process` starting a node, and then wait until we
+		// able to connect to it using PolkadotJS in order to know its running.
+		startNode(
+			upgraded_relay_chain_bin,
+			name,
+			wsPort,
+			rpcPort,
+			port,
+			nodeKey!, // by the time the control flow gets here it should be assigned.
+			spec,
+			flags,
+			basePath
+		);
+	}
+
+	console.log("\nAll relay nodes restarted with the new binaries."); // todo decorate
+
+	// Then launch each parachain
+	for (const parachain of config.parachains) {
+		const { resolvedId, chain: paraChain } = parachain;
+		const upgrade_bin_path = (parachain as UpgradableResolvedParachainConfig).upgradeBin;
+
+		if (!upgrade_bin_path) {
+			console.error(`Config file is missing its 'upgradeBin' argument for parachain ${resolvedId}! \
+			Please provide the path to the modified binary.`);
+			process.exit();
+		}
+
+		const bin = resolve(config_dir, upgrade_bin_path);
+		if (!fs.existsSync(bin)) {
+			console.error("Upgraded parachain binary does not exist: ", bin);
+			process.exit();
+		}
+		let account = parachainAccount(resolvedId);
+
+		for (const node of parachain.nodes) {
+			const { wsPort, port, flags, name, basePath, rpcPort } = node;
+
+			console.log("\nStopping the next collator node...");
+			killProcess(node.wsPort);
+
+			console.log(
+				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
+			);
+			startCollator(bin, wsPort, rpcPort, port, {
+				name,
+				spec,
+				flags,
+				chain: paraChain,
+				basePath,
+				onlyOneParachainNode: config.parachains.length === 1,
+			});
+		}
+	}
+
+	console.log("\nAll collators restarted with the new binaries"); // todo decorate
+
+	// Simple parachains are not tested.
+
+	// Connect to the first relay chain node to submit the extrinsic.
+	/*let relayChainApi: ApiPromise = await connect(
+		config.relaychain.nodes[0].wsPort,
+		loadTypeDef(config.types)
+	);*/
+
+	// We don't need the PolkadotJs API anymore
+	//await relayChainApi.disconnect();
+
+	console.log("🚀 POLKADOT RUNTIME UPGRADE TESTING COMPLETE 🚀");
 }
 
 interface GenesisParachain {
