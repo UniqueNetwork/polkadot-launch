@@ -15,17 +15,16 @@ const { argv } = require("yargs")
 			alias: 'upgrade',
 			type: 'boolean',
 			describe: 'Whether we should test upgrading the runtimes with additional binaries designated in the config.',
-			default: false
+			default: false,
 		},
-		'timeout': {
+		/*'timeout': {
 			alias: 't',
 			type: 'number',
-			describe: 'Timeout for when an epoch expires (in ms). Used for runtime upgrade testing. \
-			1 hour by default, but different relay chains might have different epoch lengths.',
-			default: 4200000
-		}
+			describe: 'Timeout for when an epoch expires (in ms). Used for runtime upgrade testing. '
+			+ '1 hour by default, but different relay chains might have different epoch lengths.',
+			default: 4200000,
+		}*/
 	})
-
 const config_file = argv._[0] ? argv._[0] : null;
 if (!config_file) {
 	console.error("Missing config file argument...");
@@ -49,7 +48,7 @@ process.on("SIGINT", function () {
 	process.exit(2);
 });
 
-if (argv.upgrade)
-	runThenTryUpgrade(config_dir, config, argv.t);
-else
+if (argv.upgrade) 
+	runThenTryUpgrade(config_dir, config);
+else 
 	run(config_dir, config);
