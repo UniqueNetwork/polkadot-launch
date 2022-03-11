@@ -432,7 +432,6 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 				);
 
 				const spec_version = await getSpecVersion(parachain_api);
-				console.log(spec_version);
 
 				await parachain_api.disconnect();
 				await waitForExtraOutput();
