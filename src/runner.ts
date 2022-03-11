@@ -5,6 +5,7 @@ import {
 	startCollator,
 	generateChainSpec,
 	generateChainSpecRaw,
+	giveKeyToCollator,
 	exportGenesisWasm,
 	exportGenesisState,
 	startSimpleCollator,
@@ -16,7 +17,9 @@ import {
 	setBalance,
 	upgradeRelayRuntime,
 	upgradeParachainRuntime,
-	getChainInfo,
+	getRelayInfo,
+	getSpecVersion,
+	getCodeValidationDelay,
 } from "./rpc";
 import { checkConfig } from "./check";
 import {
@@ -39,7 +42,9 @@ import type {
 	ResolvedSimpleParachainConfig,
 	HrmpChannelsConfig,
 	ResolvedLaunchConfig,
-	RelayChainConfig,
+	UpgradableRelayChainConfig,
+	UpgradableResolvedParachainConfig,
+	KeyedParachainNodeConfig,
 } from "./types";
 import { keys as libp2pKeys } from "libp2p-crypto";
 import { hexAddPrefix, hexStripPrefix, hexToU8a } from "@polkadot/util";
@@ -197,91 +202,43 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 	return config;
 }
 
-interface UpgradableRelayChainConfig extends RelayChainConfig { // todo displace to types
-	upgradeBin: string;
-	epochTime: number;
-	upgradeWasm: string;
-}
-
-interface UpgradableResolvedParachainConfig extends ResolvedParachainConfig {
-	upgradeBin: string;
-	upgradeWasm: string;
-}
-
 const parachain_block_time = 12000;
 
 export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchConfig) {
 	// Check the config for existence and the required arguments
-	if (!checkConfig(rawConfig)) {
+	if (!checkConfig(rawConfig, config_dir, true)) {
 		return;
 	}
 
-	const relay_chain = rawConfig.relaychain as UpgradableRelayChainConfig;
-	if (!relay_chain.upgradeBin) {
-		console.error(`Config file is missing its 'upgradeBin' argument for the relay chain! `
-		+ `Please provide the path to the modified binary.`);
-		process.exit();
+	let config = await resolveParachainId(config_dir, rawConfig);
+	
+	// Generate chain specs for parachains that do not have them specified
+	for (let parachain of config.parachains) {
+		const { resolvedId, chain: parachainSpec } = parachain;
+
+		if (!parachainSpec) {
+			await generateChainSpecRaw(parachain.bin, "", resolvedId);
+			parachain.chain = `${resolvedId}-raw.json`;
+		} else {
+			if (!fs.existsSync(resolve(config_dir, parachainSpec))) {
+				console.error(`⚠ The specified chain spec file for parachain ${resolvedId} does not exist: ${parachainSpec}`);
+				return false;
+			}
+		}
 	}
+
+	const relay_chain = config.relaychain as UpgradableRelayChainConfig;
 	const upgraded_relay_chain_bin = resolve(config_dir, relay_chain.upgradeBin);
-	if (!fs.existsSync(upgraded_relay_chain_bin)) {
-		console.error("Upgraded relay chain binary does not exist: ", upgraded_relay_chain_bin);
-		process.exit();
-	}
-
-	if (!relay_chain.upgradeWasm) {
-		console.error(`Config file is missing its 'upgradeWasm' argument for the relay chain! `
-		+ `Please provide the path to the modified WASM code.`);
-		process.exit();
-	}
 	const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
-	if (!fs.existsSync(upgraded_relay_chain_wasm)) {
-		console.error("Upgraded relay chain WASM code does not exist: ", upgraded_relay_chain_wasm);
-		process.exit();
-	}
 
-	if (!relay_chain.epochTime) {
-		console.error(`Config file is missing its 'epochTime' argument for the relay chain! `
-		+ `Please provide the time it would take for the chain's epochs to change.`);
-		process.exit();
-	}
-	const epoch_time = relay_chain.epochTime;
-
-	for (const parachain of (rawConfig as ResolvedLaunchConfig).parachains) {
-		const { resolvedId, chain: paraChain, upgradeBin, upgradeWasm } = parachain as UpgradableResolvedParachainConfig;
-
-		if (!upgradeBin) {
-			console.error(`Config file is missing its 'upgradeBin' argument for parachain ${resolvedId}! `
-			+ `Please provide the path to the modified binary.`);
-			process.exit();
+	// Actually launch the nodes and get the resolved config. Since the config has been already checked, it must exist
+	config = (await run(config_dir, rawConfig))!;
+	
+	// Send a specified keys to parachain nodes in case the parachain requires it
+	for (let parachain of config.parachains) {
+		for (let node of parachain.nodes) {
+			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
-		const bin = resolve(config_dir, upgradeBin);
-		if (!fs.existsSync(bin)) {
-			console.error("Upgraded parachain binary does not exist: ", bin);
-			process.exit();
-		}
-
-		if (!upgradeWasm) {
-			console.error(`Config file is missing its 'upgradeBin' argument for parachain ${resolvedId}! `
-			+ `Please provide the path to the modified binary.`);
-			process.exit();
-		}
-		const wasm = resolve(config_dir, upgradeWasm);
-		if (!fs.existsSync(wasm)) {
-			console.error("Upgraded parachain WASM code does not exist: ", wasm);
-			process.exit();
-		}
-		
-		if (!paraChain) {
-			console.error(`Chain spec file is not provided for parachain ${resolvedId}! `
-			+ `Please provide the path to it with the 'chain' argument.`);
-		}
-	}
-
-	// Actually launch the nodes and get the resolved config
-	const config = await run(config_dir, rawConfig);
-
-	if (!config) {
-		return;
 	}
 
 	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶 
@@ -293,10 +250,13 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
-	const relay_old_version = await getChainInfo(relay_chain_api);
-	console.log(relay_old_version);
+	await getCodeValidationDelay(relay_chain_api);
+
+	const { specVersion: relay_old_version, epochLength, blockTime } = await getRelayInfo(relay_chain_api);
+	const epoch_time = epochLength * blockTime;
+
 	await relay_chain_api.disconnect();
-	// Prettify the output, otherwise warnings may spill over the next few lines
+	// Prettify the output, otherwise potential warnings may spill over the next few lines
 	await waitForExtraOutput();
 	
 	let node_count = 0;
@@ -329,25 +289,26 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 
 	console.log("\nAll relay nodes restarted with the new binaries.");
 
-	const parachains_info: { [id: string]: { first_node: number, old_version: number } } = {};
+	const parachains_info: { [id: string]: { first_node: number, old_version: number, has_updated: boolean } } = {};
 	// Then restart each parachain
 	for (const parachain of config.parachains) {
 		const { resolvedId, chain: parachainSpec } = parachain;
 		const bin = resolve(config_dir, (parachain as UpgradableResolvedParachainConfig).upgradeBin);
 		
 		if (parachain.nodes.length > 0) {
-			let parachainApi: ApiPromise = await connect(
+			let parachain_api: ApiPromise = await connect(
 				parachain.nodes[0].wsPort,
 				loadTypeDef(config.types)
 			);
 
 			parachains_info[resolvedId] = {
 				first_node: parachain.nodes[0].wsPort,
-				old_version: await getChainInfo(parachainApi),
+				old_version: await getSpecVersion(parachain_api),
+				has_updated: false,
 			};
 
-			await parachainApi.disconnect();
-			// Prettify the output, otherwise warnings may spill over the next few lines
+			await parachain_api.disconnect();
+			// Prettify the output, otherwise potential warnings may spill over the next few lines
 			await waitForExtraOutput();
 		}
 
@@ -372,6 +333,8 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 
 			console.log("🚥 Waiting for the node to be brought up...");
 			await waitWithTimer(parachain_block_time);
+
+			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
 	}
 
@@ -389,34 +352,33 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
+
 	await upgradeRelayRuntime(relay_chain_api, upgraded_relay_chain_wasm, true);
+
 	await relay_chain_api.disconnect();
 	await waitForExtraOutput();
-
-	console.log("\n🚥 Starting timeout for the next epoch before uprgading the parachains code...");
-	await waitWithTimer(epoch_time);
-
-	// For each parachain, connect, authorize and upgrade its runtime
-	for (const parachain of config.parachains) {
-		const { upgradeWasm: wasm, resolvedId } = parachain as UpgradableResolvedParachainConfig;
-		
-		if (parachains_info[resolvedId]) {
-			let parachainApi: ApiPromise = await connect(
-				parachains_info[resolvedId].first_node,
-				loadTypeDef(config.types)
-			);
-			await upgradeParachainRuntime(parachainApi, wasm, true);
-			await parachainApi.disconnect();
-			await waitForExtraOutput();
-		}
-	}
-
-	// Re-establish connection to the node (strange behavior otherwise) and check the spec version
+	// Re-establish connection to the node (strange behavior otherwise) and get the renewed relay info
 	relay_chain_api = await connect(
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
-	const relay_new_version = await getChainInfo(relay_chain_api);
+	
+	let { 
+		specVersion: relay_new_version, 
+		epochLength: new_epoch_length, 
+		blockTime: new_relay_block_time 
+	} = await getRelayInfo(relay_chain_api);
+
+	await relay_chain_api.disconnect();
+	await waitForExtraOutput();
+	// Re-establish connection to the node (strange behavior otherwise) and get the runtime upgrade validation delay for parachains
+	relay_chain_api = await connect(
+		config.relaychain.nodes[0].wsPort,
+		loadTypeDef(config.types)
+	);
+	
+	const code_validation_delay = Math.ceil(new_relay_block_time * (await getCodeValidationDelay(relay_chain_api)));// + parachain_block_time;
+
 	await relay_chain_api.disconnect();
 	await waitForExtraOutput();
 
@@ -424,35 +386,61 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 		console.log(`\n\🛰️ The relay has successfully upgraded from version ${relay_old_version} to ${relay_new_version}!`);
 	} else {
 		console.error(`\nThe relay failed to upgrade from version ${relay_old_version}!`);
-		// process.exit();
 		relay_upgrade_failed = true;
 	}
 
-	/*console.log("\n🚥 Waiting for the next epoch to verify that the parachain upgrades are successful...");
-	await waitWithTimer(epoch_time);*/
+	console.log("\n🚥 Starting timeout for the next epoch before uprgading the parachains code...");
+	await waitWithTimer(new_epoch_length * new_relay_block_time);
 
-	// For each parachain, re-connect and verify that the runtime upgrade is successful
+	// For each parachain, connect, authorize and upgrade its runtime
+	for (const parachain of config.parachains) {
+		const { upgradeWasm: wasm, resolvedId } = parachain as UpgradableResolvedParachainConfig;
+		
+		if (parachains_info[resolvedId]) {
+			let parachain_api: ApiPromise = await connect(
+				parachains_info[resolvedId].first_node,
+				loadTypeDef(config.types)
+			);
+			await upgradeParachainRuntime(parachain_api, wasm, true);
+			await parachain_api.disconnect();
+			await waitForExtraOutput();
+		}
+	}
+
+	// Ping the the chains for the runtime upgrade after the minimal time and then every few blocks
 	parachains_upgrade_failed = true;
-	for (let try_n = 0; try_n < 10 && parachains_upgrade_failed; try_n++) { // todo figure out what and when
+	let first_pass = true;
+	for (let try_n = 0; try_n < 3 && parachains_upgrade_failed; try_n++) {
+		if (first_pass) {
+			console.log("\n🚥 Waiting for the minimum code validation delay to verify that the parachain upgrades are successful...");
+			await waitWithTimer(code_validation_delay);
+			first_pass = false;
+		} else {
+			console.log("\n🚥 Waiting for a few blocks more to verify that the parachain upgrades are successful...");
+			await waitWithTimer(parachain_block_time * 3);
+		}
 		parachains_upgrade_failed = false;
+		// For each parachain, re-connect and verify that the runtime upgrade is successful
 		for (const parachain of config.parachains) {
 			const { resolvedId } = parachain as UpgradableResolvedParachainConfig;
+			if (parachains_info[resolvedId].has_updated) continue;
 			
 			if (parachains_info[resolvedId]) {
-				let parachainApi: ApiPromise = await connect(
+				let parachain_api: ApiPromise = await connect(
 					parachains_info[resolvedId].first_node,
 					loadTypeDef(config.types)
 				);
 
-				const spec_version = await getChainInfo(parachainApi);
+				const spec_version = await getSpecVersion(parachain_api);
 				console.log(spec_version);
 
-				await parachainApi.disconnect();
+				await parachain_api.disconnect();
 				await waitForExtraOutput();
 
 				if (spec_version != parachains_info[resolvedId].old_version) {
 					console.log(`\n\🛰️ Parachain ${resolvedId} has successfully upgraded from `
 					+ `version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
+					parachains_info[resolvedId].has_updated = true;
 				} else {
 					console.error(`\nThe parachain ${resolvedId} failed to upgrade from version ${parachains_info[resolvedId].old_version}!`);
 					//process.exit();
@@ -460,7 +448,6 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 				}
 			}
 		}
-		await waitWithTimer(parachain_block_time);
 	}
 
 	if (parachains_upgrade_failed || relay_upgrade_failed) {
@@ -485,6 +472,21 @@ async function waitWithTimer(time: number) {
 		await delay(1000);
 		process.stdout.clearLine(0);
 		process.stdout.cursorTo(0);
+	}
+}
+
+// Check and insert a node's Aura key if present
+async function applyAuraKey(node: KeyedParachainNodeConfig, config_dir: string) {
+	const { rpcPort, auraKey } = node as KeyedParachainNodeConfig;
+	if (auraKey) {
+		const key = resolve(config_dir, auraKey);
+		if (!fs.existsSync(key)) {
+			console.error(`⚠ The specified Aura key does not exist: ${auraKey}`);
+		} else if (!rpcPort) {
+			console.error(`⚠ The RPC port has not been specified whereas the Aura key exists: ${auraKey}`);
+		} else {
+			await giveKeyToCollator(rpcPort, key);
+		}
 	}
 }
 
@@ -562,7 +564,9 @@ async function resolveParachainId(
 	console.log(`\n🧹 Resolving parachain id...`);
 	const resolvedConfig = config as ResolvedLaunchConfig;
 	for (const parachain of resolvedConfig.parachains) {
-		if (parachain.id) {
+		if (parachain.resolvedId) {
+			continue;
+		} else if (parachain.id) {
 			parachain.resolvedId = parachain.id;
 		} else {
 			const bin = resolve(config_dir, parachain.bin);

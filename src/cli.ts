@@ -16,14 +16,7 @@ const { argv } = require("yargs")
 			type: 'boolean',
 			describe: 'Whether we should test upgrading the runtimes with additional binaries designated in the config.',
 			default: false,
-		},
-		/*'timeout': {
-			alias: 't',
-			type: 'number',
-			describe: 'Timeout for when an epoch expires (in ms). Used for runtime upgrade testing. '
-			+ '1 hour by default, but different relay chains might have different epoch lengths.',
-			default: 4200000,
-		}*/
+		}
 	})
 const config_file = argv._[0] ? argv._[0] : null;
 if (!config_file) {

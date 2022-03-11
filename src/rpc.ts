@@ -266,12 +266,47 @@ export async function upgradeParachainRuntime(
 	});
 }
 
-export async function getChainInfo(
+export interface RelayInfo {
+	specVersion: number,
+	epochLength: number,
+	blockTime: number,
+}
+
+export async function getSpecVersion(
 	api: ApiPromise,
 ): Promise<number> { 
 	return new Promise(async (resolve) => {
-		const chainInfo = api.consts.system.version.specVersion.toNumber();
-  		resolve(chainInfo);
+		const info = api.consts.system.version.specVersion.toNumber();
+  		resolve(info);
+	});
+}
+
+export async function getRelayInfo(
+	api: ApiPromise,
+): Promise<RelayInfo> { 
+	return new Promise(async (resolve) => {
+		const info = {
+			specVersion: api.consts.system.version.specVersion.toNumber(),
+			epochLength: api.consts.babe.epochDuration.toNumber(),
+			blockTime: api.consts.babe.expectedBlockTime.toNumber(),
+		};
+  		resolve(info);
+	});
+}
+
+export async function getCodeValidationDelay(
+	api: ApiPromise,
+): Promise<number> { 
+	return new Promise(async (resolve) => {
+		const { validationUpgradeDelay, minimumValidationUpgradeDelay } = (await api.query.configuration.activeConfig()).toJSON() as any;
+		let delay = 0;
+		if (validationUpgradeDelay !== undefined) {
+			delay = validationUpgradeDelay;
+			if (minimumValidationUpgradeDelay !== undefined) {
+				delay = Math.max(delay, minimumValidationUpgradeDelay);
+			}
+		}
+  		resolve(delay);
 	});
 }
 

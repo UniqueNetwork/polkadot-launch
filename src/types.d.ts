@@ -92,3 +92,14 @@ export interface ResolvedLaunchConfig extends LaunchConfig {
 	parachains: ResolvedParachainConfig[];
 	simpleParachains: ResolvedSimpleParachainConfig[];
 }
+export interface UpgradableRelayChainConfig extends RelayChainConfig {
+	upgradeBin: string;
+	upgradeWasm: string;
+}
+export interface UpgradableResolvedParachainConfig extends ResolvedParachainConfig {
+	upgradeBin: string;
+	upgradeWasm: string;
+}
+export interface KeyedParachainNodeConfig extends ParachainNodeConfig {
+	auraKey: string;
+}
