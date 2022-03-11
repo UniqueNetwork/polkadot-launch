@@ -46,7 +46,7 @@ cp ./target/release/polkadot-collator ../polkadot-launch/bin/polkadot-collator
 polkadot-launch config.json
 ```
 
-For testing forkless runtime upgrade append `--test-upgrade` flag.
+For testing forkless runtime upgrade append the `--test-upgrade` flag.
 
 ### Configuration File
 
@@ -58,6 +58,21 @@ You can see the examples:
 - [config.js](config.js)
 
 You may find the .js alternative more convenient if you need comments, trailing commas or if you prefer do dedup some portions of the config.
+
+### Forkless Runtime Upgrade Testing
+
+In order to test forkless runtime upgrades, the following arguments will have to be present in the configuration file:
+
+- `relaychain`
+  - `upgradeBin`
+  - `upgradeWasm`
+- `parachains`
+  - `upgradeBin`
+  - `upgradeWasm`
+  - `nodes`
+    - `auraKey` (Optional)
+
+Their description is provided alongside the other arguments in the next subsections.
 
 #### `relaychain`
 

@@ -162,6 +162,8 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 				basePath,
 				onlyOneParachainNode: config.parachains.length === 1,
 			});
+			// Send a specified keys to parachain nodes in case the parachain requires it
+			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
 
 		// Allow time for the TX to complete, avoiding nonce issues.
@@ -233,13 +235,6 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 
 	// Actually launch the nodes and get the resolved config. Since the config has been already checked, it must exist
 	config = (await run(config_dir, rawConfig))!;
-	
-	// Send a specified keys to parachain nodes in case the parachain requires it
-	for (let parachain of config.parachains) {
-		for (let node of parachain.nodes) {
-			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
-		}
-	}
 
 	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶 
 
@@ -333,7 +328,8 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 
 			console.log("🚥 Waiting for the node to be brought up...");
 			await waitWithTimer(parachain_block_time);
-
+			
+			// Send a specified keys to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
 	}
