@@ -138,7 +138,9 @@ export async function setBalance(
 export async function upgradeRelayRuntime(
 	api: ApiPromise,
 	wasm: string,
-	finalization: boolean = false
+	finalization: boolean = false,
+	old_tag?: string,
+	new_tag?: string,
 ) { 
 	return new Promise<void>(async (resolvePromise, reject) => {
 		await cryptoWaitReady();
@@ -150,7 +152,7 @@ export async function upgradeRelayRuntime(
 		const code = fs.readFileSync(wasm).toString('hex');
 
 		console.log(
-			`--- Upgrading the relay chain runtime from ${code.length / 2} bytes. (nonce: ${nonce}) ---`
+			`--- Upgrading the relay chain runtime from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. (nonce: ${nonce}) ---`
 		);
 		const unsub = await api.tx.sudo
 			.sudoUncheckedWeight(api.tx.system.setCode(`0x${code}`), 0)
@@ -184,7 +186,9 @@ export async function upgradeRelayRuntime(
 export async function upgradeParachainRuntime(
 	api: ApiPromise,
 	wasm: string,
-	finalization: boolean = true
+	finalization: boolean = true,
+	old_tag?: string,
+	new_tag?: string,
 ) { 
 	const code = fs.readFileSync(wasm);
 	const codeHash = blake2AsHex(code); // 256
@@ -198,7 +202,7 @@ export async function upgradeParachainRuntime(
 		const nonce = Number((await api.query.system.account(alice.address)).nonce);
 
 		console.log(
-			`--- Authorizing the parachain runtime upgrade from ${code.length} bytes. (nonce: ${nonce}) ---`
+			`--- Authorizing the parachain runtime upgrade from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. (nonce: ${nonce}) ---`
 		);
 		const unsub = await api.tx.sudo
 			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash), 0)

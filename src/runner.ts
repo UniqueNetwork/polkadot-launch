@@ -11,6 +11,7 @@ import {
 	startSimpleCollator,
 	getParachainIdFromSpec,
 	killProcess,
+	getGitRepositoryTag,
 } from "./spawn";
 import { 
 	connect, 
@@ -32,7 +33,7 @@ import {
 } from "./spec";
 import { parachainAccount } from "./parachain";
 import { ApiPromise } from "@polkadot/api";
-import { randomAsHex } from "@polkadot/util-crypto";
+import { randomAsHex, encodeAddress } from "@polkadot/util-crypto";
 
 import { resolve } from "path";
 import fs from "fs";
@@ -114,8 +115,9 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 	// First we launch each of the validators for the relay chain.
 	for (const node of config.relaychain.nodes) {
 		const { name, wsPort, rpcPort, port, flags, basePath, nodeKey } = node;
+		const address = encodeAddress(hexAddPrefix(nodeKey!)); // by the time the control flow gets here it should be assigned.
 		console.log(
-			`Starting Relaychain Node ${name}... wsPort: ${wsPort} rpcPort: ${rpcPort} port: ${port} nodeKey: ${nodeKey}`
+			`Starting Relaychain Node ${name}: ${address}, wsPort: ${wsPort} rpcPort: ${rpcPort} port: ${port} nodeKey: ${nodeKey}`
 		);
 		// We spawn a `child_process` starting a node, and then wait until we
 		// able to connect to it using PolkadotJS in order to know its running.
@@ -125,7 +127,7 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 			wsPort,
 			rpcPort,
 			port,
-			nodeKey!, // by the time the control flow gets here it should be assigned.
+			nodeKey!,
 			spec,
 			flags,
 			basePath
@@ -233,6 +235,10 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 	const upgraded_relay_chain_bin = resolve(config_dir, relay_chain.upgradeBin);
 	const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
 
+	// Fetch git tags for better recognition. A specific request.
+	const relay_old_tag = await getGitRepositoryTag(relay_chain.bin);
+	const relay_new_tag = await getGitRepositoryTag(upgraded_relay_chain_bin);
+
 	// Actually launch the nodes and get the resolved config. Since the config has been already checked, it must exist
 	config = (await run(config_dir, rawConfig))!;
 
@@ -241,11 +247,11 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 	const chain = config.relaychain.chain;
 	const spec = resolve(`${chain}-raw.json`);
 
+	// Fetch information on the relay chain specifics
 	let relay_chain_api: ApiPromise = await connect(
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
-	await getCodeValidationDelay(relay_chain_api);
 
 	const { specVersion: relay_old_version, epochLength, blockTime } = await getRelayInfo(relay_chain_api);
 	const epoch_time = epochLength * blockTime;
@@ -258,7 +264,9 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 	// Stop the relay nodes one by one with a delay equal to or higher than the epoch time
 	for (const node of config.relaychain.nodes) {
 		node_count++;
-		console.log(`\n🚦 Starting timeout for the epoch change (node ${node_count}/${config.relaychain.nodes.length})...`);
+		console.log(`\n🚦 Starting timeout for the epoch change (` + 
+			(relay_old_tag ? `${relay_old_tag} > ${relay_new_tag}, ` : ``) +
+			`node ${node_count}/${config.relaychain.nodes.length})...`);
 		await waitWithTimer(epoch_time);
 		
 		const { name, wsPort, rpcPort, port, flags, basePath, nodeKey } = node;
@@ -266,8 +274,9 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 		console.log("Stopping the next relay node...");
 		killProcess(node.name);
 
+		const address = encodeAddress(hexAddPrefix(nodeKey!));
 		console.log(
-			`Starting Relaychain Node ${name}... wsPort: ${wsPort} rpcPort: ${rpcPort} port: ${port} nodeKey: ${nodeKey}`
+			`Starting Relaychain Node ${name}: ${address}, wsPort: ${wsPort} rpcPort: ${rpcPort} port: ${port} nodeKey: ${nodeKey}`
 		);
 		startNode(
 			upgraded_relay_chain_bin,
@@ -275,20 +284,27 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 			wsPort,
 			rpcPort,
 			port,
-			nodeKey!, // by the time the control flow gets here it should be assigned.
+			nodeKey!,
 			spec,
 			flags,
 			basePath
 		);
 	}
 
-	console.log("\nAll relay nodes restarted with the new binaries.");
+	console.log(`\nAll relay nodes restarted with the new binaries${relay_new_tag ? ` (${relay_new_tag})` : ``}.`);
 
-	const parachains_info: { [id: string]: { first_node: number, old_version: number, has_updated: boolean } } = {};
+	const parachains_info: { [id: string]: { 
+		first_node: number, 
+		old_version: number, 
+		has_updated: boolean,
+		old_tag: string,
+		new_tag: string,
+	 } } = {};
+	 
 	// Then restart each parachain
 	for (const parachain of config.parachains) {
-		const { resolvedId, chain: parachainSpec } = parachain;
-		const bin = resolve(config_dir, (parachain as UpgradableResolvedParachainConfig).upgradeBin);
+		const { resolvedId, chain: parachain_spec, bin: old_bin } = parachain;
+		const new_bin = resolve(config_dir, (parachain as UpgradableResolvedParachainConfig).upgradeBin);
 		
 		if (parachain.nodes.length > 0) {
 			let parachain_api: ApiPromise = await connect(
@@ -300,6 +316,8 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 				first_node: parachain.nodes[0].wsPort,
 				old_version: await getSpecVersion(parachain_api),
 				has_updated: false,
+				old_tag: await getGitRepositoryTag(old_bin),
+				new_tag: await getGitRepositoryTag(new_bin),
 			};
 
 			await parachain_api.disconnect();
@@ -310,18 +328,19 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 		// Stop and restart each node
 		for (const node of parachain.nodes) {
 			const { wsPort, port, flags, name, basePath, rpcPort } = node;
+			let account = parachainAccount(resolvedId);
 
 			console.log("\nStopping the next collator node...");
 			killProcess(node.wsPort);
 
 			console.log(
-				`Starting a Collator for parachain ${resolvedId}: Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
+				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
 			);
-			await startCollator(bin, wsPort, rpcPort, port, {
+			await startCollator(new_bin, wsPort, rpcPort, port, {
 				name,
 				spec,
 				flags,
-				chain: parachainSpec,
+				chain: parachain_spec,
 				basePath,
 				onlyOneParachainNode: config.parachains.length === 1,
 			});
@@ -329,18 +348,19 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 			console.log("🚥 Waiting for the node to be brought up...");
 			await waitWithTimer(parachain_block_time);
 			
-			// Send a specified keys to parachain nodes in case the parachain requires it
+			// Send specified keys to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
 	}
 
-	console.log("\nAll collators restarted with the new binaries."); 
+	console.log("\nAll parachain collators restarted with the new binaries."); 
 
 	// Simple parachains are not tested.
 
 	let relay_upgrade_failed, parachains_upgrade_failed = false;
 
-	console.log("\n🚦 Starting timeout for the next epoch before uprgading the relay runtime code...");
+	console.log(`\n🚦 Starting timeout for the next epoch before uprgading the relay runtime code` +
+		(relay_old_tag ? ` (${relay_old_tag} > ${relay_new_tag})` : ``) + `...`);
 	await waitWithTimer(epoch_time);
 	
 	// Connect to alice on the relay (the first node, assumed to be the superuser) and run a forkless runtime upgrade
@@ -349,7 +369,7 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 		loadTypeDef(config.types)
 	);
 
-	await upgradeRelayRuntime(relay_chain_api, upgraded_relay_chain_wasm, true);
+	await upgradeRelayRuntime(relay_chain_api, upgraded_relay_chain_wasm, true, relay_old_tag, relay_new_tag);
 
 	await relay_chain_api.disconnect();
 	await waitForExtraOutput();
@@ -379,7 +399,7 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 	await waitForExtraOutput();
 
 	if (relay_old_version != relay_new_version) {
-		console.log(`\n\🛰️ The relay has successfully upgraded from version ${relay_old_version} to ${relay_new_version}!`);
+		console.log(`\n\🛰️  The relay has successfully upgraded from version ${relay_old_version} to ${relay_new_version}!`);
 	} else {
 		console.error(`\nThe relay failed to upgrade from version ${relay_old_version}!`);
 		relay_upgrade_failed = true;
@@ -397,7 +417,7 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 				parachains_info[resolvedId].first_node,
 				loadTypeDef(config.types)
 			);
-			await upgradeParachainRuntime(parachain_api, wasm, true);
+			await upgradeParachainRuntime(parachain_api, wasm, true, parachains_info[resolvedId].old_tag, parachains_info[resolvedId].new_tag);
 			await parachain_api.disconnect();
 			await waitForExtraOutput();
 		}
@@ -433,11 +453,11 @@ export async function runThenTryUpgrade(config_dir: string, rawConfig: LaunchCon
 				await waitForExtraOutput();
 
 				if (spec_version != parachains_info[resolvedId].old_version) {
-					console.log(`\n\🛰️ Parachain ${resolvedId} has successfully upgraded from `
-					+ `version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
+					console.log(`\n\🛰️  Parachain ${resolvedId} has successfully upgraded from ` +
+						`version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
 					parachains_info[resolvedId].has_updated = true;
 				} else {
-					console.error(`\nThe parachain ${resolvedId} failed to upgrade from version ${parachains_info[resolvedId].old_version}!`);
+					console.error(`\nParachain ${resolvedId} failed to upgrade from version ${parachains_info[resolvedId].old_version}!`);
 					//process.exit();
 					parachains_upgrade_failed = true;
 				}

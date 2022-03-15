@@ -278,14 +278,33 @@ export async function giveKeyToCollator(
 	rpcPort: number,
 	key: string,
 ) {
-	let args = ["http://127.0.0.1:" + rpcPort, "-H \"Content-Type:application/json;charset=utf-8\"", "-d @" + key];
-	exec('curl ' + args.join(' '), (_, stdout) => {
-		if (stdout.includes("err")) {
-			console.error(`⚠ Failed to send the key to port ${rpcPort}. The key: ${key}`);
-			console.error(stdout);
-		} else {
-			console.log(`Granted node on port ${rpcPort} its Aura key`);
-		}
+	return new Promise<void>(function (resolve, reject) {
+		let args = ["http://127.0.0.1:" + rpcPort, "-H \"Content-Type:application/json;charset=utf-8\"", "-d @" + key];
+		exec('curl ' + args.join(' '), (err, stdout) => {
+			if (stdout.includes("err")) {
+				console.error(`⚠ Failed to send the key to port ${rpcPort}. The key: ${key}`);
+				console.error(stdout);
+				reject(err);
+			} else {
+				console.log(`Granted node on port ${rpcPort} its Aura key`);
+				resolve();
+			}
+		});
+	});
+}
+
+export async function getGitRepositoryTag (
+	location: string,
+): Promise<string> {
+	return new Promise<string>(function (resolve) {
+		const sub = location.substring(0, location.lastIndexOf('/') + 1);
+		exec('git -C ' + sub + ' describe --tags --abbrev=0', (err, stdout, stderr) => {
+			if (stderr.includes("fatal")) {
+				resolve(""); // possibly notify of the error (not a git repository)
+			} else {
+				resolve(stdout.replace(/(\r\n|\n|\r)/gm, ""));
+			}
+		});
 	});
 }
 
