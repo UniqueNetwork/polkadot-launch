@@ -8,7 +8,7 @@ import { resolve } from "path";
 
 // This function checks that the `config.json` file has all the expected properties.
 // It displays a unique error message and returns `false` for any detected issues.
-export function checkConfig(config: LaunchConfig, config_dir?: string, isTestingUpgrade?: boolean) {
+export function checkConfig(config: LaunchConfig, config_dir?: string, isTestingUpgrade: boolean = false, isTestingParachainsOnly: boolean = false) {
 	if (!config) {
 		console.error("⚠ Missing config");
 		return false;
@@ -74,27 +74,29 @@ export function checkConfig(config: LaunchConfig, config_dir?: string, isTesting
 			return false;
 		}
 
-		const relay_chain = config.relaychain as UpgradableRelayChainConfig;
-		if (!relay_chain.upgradeBin) {
-			console.error(`⚠ Missing the 'upgradeBin' argument for the relay chain. `
-			+ `Please provide the path to the modified binary.`);
-			return false;
-		}
-		const upgraded_relay_chain_bin = resolve(config_dir, relay_chain.upgradeBin);
-		if (!fs.existsSync(upgraded_relay_chain_bin)) {
-			console.error("⚠ Upgraded relay chain binary does not exist: ", upgraded_relay_chain_bin);
-			return false;
-		}
+		if (!isTestingParachainsOnly) {
+			const relay_chain = config.relaychain as UpgradableRelayChainConfig;
+			if (!relay_chain.upgradeBin) {
+				console.error(`⚠ Missing the 'upgradeBin' argument for the relay chain. `
+				+ `Please provide the path to the modified binary.`);
+				return false;
+			}
+			const upgraded_relay_chain_bin = resolve(config_dir, relay_chain.upgradeBin);
+			if (!fs.existsSync(upgraded_relay_chain_bin)) {
+				console.error("⚠ Upgraded relay chain binary does not exist: ", upgraded_relay_chain_bin);
+				return false;
+			}
 
-		if (!relay_chain.upgradeWasm) {
-			console.error(`⚠ Missing the 'upgradeWasm' argument for the relay chain `
-			+ `Please provide the path to the modified WASM code.`);
-			return false;
-		}
-		const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
-		if (!fs.existsSync(upgraded_relay_chain_wasm)) {
-			console.error("⚠ Upgraded relay chain WASM code does not exist: ", upgraded_relay_chain_wasm);
-			return false;
+			if (!relay_chain.upgradeWasm) {
+				console.error(`⚠ Missing the 'upgradeWasm' argument for the relay chain `
+				+ `Please provide the path to the modified WASM code.`);
+				return false;
+			}
+			const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
+			if (!fs.existsSync(upgraded_relay_chain_wasm)) {
+				console.error("⚠ Upgraded relay chain WASM code does not exist: ", upgraded_relay_chain_wasm);
+				return false;
+			}
 		}
 
 		/*if (!relay_chain.epochTime) {
