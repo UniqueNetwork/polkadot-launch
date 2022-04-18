@@ -22,17 +22,10 @@ const { argv } = require("yargs")
 			describe: 'Test forkless runtime upgrades for parachains only',
 			conflicts: 'test-upgrade',
 		},
-		'wait-input': {
+		'wait': {
 			alias: 'wait-for-input',
 			type: 'boolean',
-			describe: 'Wait for user input if used with runtime upgrade (useful for tests)',
-			conflicts: 'wait-for-signal',
-		},
-		'wait-signal': {
-			alias: 'wait-for-signal',
-			type: 'boolean',
-			describe: 'Wait for an external signal if used with runtime upgrade (useful for tests)',
-			conflicts: 'wait-for-input',
+			describe: 'Wait for either user input or an external signal if used with runtime upgrade (useful for tests)',
 		},
 	})
 const config_file = argv._[0] ? argv._[0] : null;
@@ -61,11 +54,9 @@ process.on("SIGINT", function () {
 	process.exit(2);
 });
 
- const should_wait = argv.waitInput ? "input" : argv.waitSignal ? "signal" : "no";
-
 if (argv.upgrade) 
-	runThenTryUpgrade(config_dir, config, should_wait);
+	runThenTryUpgrade(config_dir, config, argv.wait);
 else if (argv.upgradeParachains)
-	runThenTryUpgradeParachains(config_dir, config, should_wait);
+	runThenTryUpgradeParachains(config_dir, config, argv.wait);
 else 
 	run(config_dir, config);

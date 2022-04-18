@@ -208,7 +208,7 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 
 const parachain_block_time = 12000;
 
-export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchConfig, should_wait: "no" | "input" | "signal") {
+export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchConfig, should_wait: boolean) {
 	// Check the config for existence and the required arguments
 	if (!checkConfig(raw_config, config_dir, true, false)) {
 		return;
@@ -242,21 +242,26 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	// Actually launch the nodes and get the resolved config. Since the config has been already checked, it must exist
 	config = (await run(config_dir, raw_config))!;
 
-	if (should_wait == "input") {
-		const {prompt} = require('enquirer');
-		await prompt({
-			type: 'confirm',
-			name: 'nothing',
-			message: 'Submit to continue (now is a good time to launch any migration tests)...'
-		});
-	} else if (should_wait == "signal") {
+	if (should_wait) {
+		const { Confirm } = require('enquirer');
 		let is_ready = false;
-		process.on("SIGUSR1", () => {is_ready = true});
-		console.log("\nNow waiting for anyone to signal the process with 'SIGUSR1'...");
+
+		const prompt = new Confirm({
+			name: 'confirm',
+			message: 'Submit to continue, or send a "SIGUSR1" signal (now is a good time to launch any migration tests)...'
+		});
+
+		prompt.run().then(() => is_ready = true);
+
+		process.on("SIGUSR1", () => {
+			console.log("Signal received!");
+			prompt.submit();
+			is_ready = true;
+		});
+
 		while (!is_ready) {
 			await delay(1000);
 		}
-		console.log("Signal received!");
 	}
 
 	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶 
@@ -489,7 +494,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	}
 }
 
-export async function runThenTryUpgradeParachains(config_dir: string, raw_config: LaunchConfig, should_wait: "no" | "input" | "signal") {
+export async function runThenTryUpgradeParachains(config_dir: string, raw_config: LaunchConfig, should_wait: boolean) {
 	// Check the config for existence and the required arguments
 	if (!checkConfig(raw_config, config_dir, true, true)) {
 		return;
@@ -515,21 +520,26 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 	// Actually launch the nodes and get the resolved config. Since the config has been already checked, it must exist
 	config = (await run(config_dir, raw_config))!;
 
-	if (should_wait == "input") {
-		const {prompt} = require('enquirer');
-		await prompt({
-			type: 'confirm',
-			name: 'nothing',
-			message: 'Submit to continue (now is a good time to launch any migration tests)...'
-		});
-	} else if (should_wait == "signal") {
+	if (should_wait) {
+		const { Confirm } = require('enquirer');
 		let is_ready = false;
-		process.on("SIGUSR1", () => {is_ready = true});
-		console.log("\nNow waiting for anyone to signal the process with 'SIGUSR1'...");
+
+		const prompt = new Confirm({
+			name: 'confirm',
+			message: 'Submit to continue, or send a "SIGUSR1" signal (now is a good time to launch any migration tests)...'
+		});
+
+		prompt.run().then(() => is_ready = true);
+
+		process.on("SIGUSR1", () => {
+			console.log("Signal received!");
+			prompt.submit();
+			is_ready = true;
+		});
+
 		while (!is_ready) {
 			await delay(1000);
 		}
-		console.log("Signal received!");
 	}
 
 	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶 
