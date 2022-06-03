@@ -100,7 +100,7 @@ export async function getParachainIdFromSpec(
 	});
 
 	const spec = JSON.parse(data);
-	
+
 	// Some parachains are still using snake_case format
 	return spec.paraId || spec.para_id;
 }
@@ -266,7 +266,10 @@ export function startCollator(
 		p[wsPort].stdout.pipe(log);
 		p[wsPort].stderr.on("data", function (chunk) {
 			let message = chunk.toString();
-			if (message.includes("Listening for new connections")) {
+			let ready =
+				message.includes("Running JSON-RPC WS server:") ||
+				message.includes("Listening for new connections");
+			if (ready) {
 				resolve();
 			}
 			log.write(message);
@@ -335,7 +338,10 @@ export function startSimpleCollator(
 		p[port].stdout.pipe(log);
 		p[port].stderr.on("data", function (chunk) {
 			let message = chunk.toString();
-			if (message.includes("Listening for new connections")) {
+			let ready =
+				message.includes("Running JSON-RPC WS server:") ||
+				message.includes("Listening for new connections");
+			if (ready) {
 				resolve();
 			}
 			log.write(message);

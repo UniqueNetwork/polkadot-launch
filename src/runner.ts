@@ -162,7 +162,7 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 				flags,
 				chain: paraChain,
 				basePath,
-				onlyOneParachainNode: config.parachains.length === 1,
+				onlyOneParachainNode: parachain.nodes.length === 1,
 			});
 			// Send a specified key to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
