@@ -268,6 +268,7 @@ export function startCollator(
 			let message = chunk.toString();
 			let ready =
 				message.includes("Running JSON-RPC WS server:") ||
+				message.includes("Imported") ||
 				message.includes("Listening for new connections");
 			if (ready) {
 				resolve();
