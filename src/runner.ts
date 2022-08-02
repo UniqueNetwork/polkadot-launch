@@ -22,6 +22,8 @@ import {
 	getRelayInfo,
 	getSpecVersion,
 	getCodeValidationDelay,
+	executeTransaction,
+	privateKey,
 } from "./rpc";
 import { checkConfig } from "./check";
 import {
@@ -169,6 +171,25 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 			});
 			// Send a specified key to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
+		}
+
+		if (parachain.prepopulated) {
+			console.log('Restoring parachain state, using data from first collator');
+			let parachainApi: ApiPromise = await connect(
+				parachain.nodes[0].wsPort,
+				{}
+			);
+			const block = await parachainApi.rpc.chain.getBlock();
+			const head = block.block.header.toHex();
+			const code = (await parachainApi.rpc.state.getStorage(':code') as any).toHex();
+
+			const alice = privateKey('//Alice');
+			console.log(`--- Submitting extrinsic to force head ---`);
+			await executeTransaction(relayChainApi, alice, relayChainApi.tx.sudo.sudo((relayChainApi.tx as any).paras.forceSetCurrentHead(resolvedId, head)), true);
+			console.log(`--- Submitting extrinsic to force code ---`);
+			await executeTransaction(relayChainApi, alice, relayChainApi.tx.sudo.sudo((relayChainApi.tx as any).paras.forceSetCurrentCode(resolvedId, `0x${code}`)), true);
+
+			await parachainApi.disconnect();
 		}
 
 		// Allow time for the TX to complete, avoiding nonce issues.
@@ -729,6 +750,7 @@ interface GenesisParachain {
 	resolvedSpec?: string;
 	chain?: string;
 	bin: string;
+	prepopulated?: boolean;
 }
 
 async function addParachainsToGenesis(
@@ -760,12 +782,19 @@ async function addParachainsToGenesis(
 			// Get the information required to register the parachain in genesis.
 			let genesisState: string;
 			let genesisWasm: string;
+			if (prepopulated) {
+				// We will later upload this data to relay
+				genesisState = '0x';
+				// Polkadot has "empty validation code is not allowed in genesis" check
+				genesisWasm = '0x00';
+			} else {
 			try {
 					genesisState = await exportGenesisState(bin, resolvedSpec || chain);
 					genesisWasm = await exportGenesisWasm(bin, resolvedSpec || chain);
 			} catch (err) {
 				console.error(err);
 				process.exit(1);
+				}
 			}
 
 			await addGenesisParachain(

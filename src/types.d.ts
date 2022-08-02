@@ -56,6 +56,21 @@ export interface ParachainConfig {
 	 * Generated spec is read from command stdout
 	 */
 	chainRawInitializer?: string[];
+	/**
+	 * If `true` - then this chain already has data
+	 *
+	 * Instead of using genesis to save chain data, dummy values
+	 * will be stored in genesis, and after parachain start -
+	 * existing head and data (will be obtained from first defined collator)
+	 * will be feed to relay using `forceSetCurrentCode`/`forceSetCurrentHead`
+	 *
+	 * Make sure you have parachain `id` set to value already present
+	 * in parachain database, as this option doesn't resets `ParachainInfo.ParachainId`,
+	 * and you have set `baseDir` to first/all defined nodes
+	 *
+	 * Parachain will fail to start in case if there is pending XCM messages in queue
+	 */
+	prepopulated?: boolean;
 	nodes: ParachainNodeConfig[];
 }
 export interface SimpleParachainConfig {
