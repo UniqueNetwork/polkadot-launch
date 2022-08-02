@@ -15,12 +15,15 @@ const p: { [key: string]: ChildProcessWithoutNullStreams } = {};
 const execFile = util.promisify(ex);
 
 // Output the chainspec of a node.
-export async function generateChainSpec(bin: string, chain: string) {
-	return new Promise<void>(function (resolve, reject) {
-		let args = ["build-spec", "--chain=" + chain, "--disable-default-bootnode"];
+export async function generateChainSpec(bin: string, name: string, chain?: string): Promise<string> {
+	return new Promise<string>(function (resolve, reject) {
+		let args = ["build-spec", "--disable-default-bootnode"];
+		if (chain) {
+			args.push("--chain=" + chain);
+		}
 
 		p["spec"] = spawn(bin, args);
-		let spec = fs.createWriteStream(`${chain}.json`);
+		let spec = fs.createWriteStream(`${name}.json`);
 
 		// `pipe` since it deals with flushing and  we need to guarantee that the data is flushed
 		// before we resolve the promise.
@@ -29,7 +32,7 @@ export async function generateChainSpec(bin: string, chain: string) {
 		p["spec"].stderr.pipe(process.stderr);
 
 		p["spec"].on("close", () => {
-			resolve();
+			resolve(`${name}.json`);
 		});
 
 		p["spec"].on("error", (err) => {
@@ -39,18 +42,11 @@ export async function generateChainSpec(bin: string, chain: string) {
 }
 
 // Output the chainspec of a node using `--raw` from a JSON file.
-export async function generateChainSpecRaw(bin: string, chain: string, id?: string) {
-	console.log(); // Add a newline in output
-	return new Promise<void>(function (resolve, reject) {
+export async function generateChainSpecRaw(bin: string, name: string, chain: string): Promise<string> {
+	return new Promise<string>(function (resolve, reject) {
 		let args = ["build-spec", "--raw"];
-		let name: string;
 		if (chain != "") {
-			args.push("--chain=" + chain + ".json");
-			name = chain;
-		} else if (id) {
-			name = id;
-		} else {
-			name = "parachain";
+			args.push("--chain=" + chain);
 		}
 
 		p["spec"] = spawn(bin, args);
@@ -62,7 +58,7 @@ export async function generateChainSpecRaw(bin: string, chain: string, id?: stri
 		p["spec"].stderr.pipe(process.stderr);
 
 		p["spec"].on("close", () => {
-			resolve();
+			resolve(`${name}-raw.json`);
 		});
 
 		p["spec"].on("error", (err) => {
@@ -204,7 +200,7 @@ export function startCollator(
 	return new Promise<void>(function (resolve) {
 		// TODO: Make DB directory configurable rather than just `tmp`
 		let args = ["--ws-port=" + wsPort, "--port=" + port];
-		const { basePath, name, onlyOneParachainNode, flags, spec, chain } =
+		const { basePath, name, onlyOneParachainNode, flags, spec, relaySpec } =
 			options;
 
 		if (rpcPort) {
@@ -219,8 +215,8 @@ export function startCollator(
 			args.push("--tmp");
 		}
 
-		if (chain) {
-			args.push("--chain=" + chain);
+		if (spec) {
+			args.push("--chain=" + spec);
 		}
 
 		if (name) {
@@ -251,7 +247,7 @@ export function startCollator(
 		}
 
 		// Arguments for the relay chain node part of the collator binary.
-		args = args.concat(["--", "--chain=" + spec]);
+		args = args.concat(["--", "--chain=" + relaySpec]);
 
 		if (flags_collator) {
 			// Add any additional flags to the CLI

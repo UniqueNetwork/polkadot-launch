@@ -1,9 +1,15 @@
 export interface CollatorOptions {
 	name?: string;
+	/**
+	 * Path to relay chain raw spec file
+	 */
+	relaySpec?: string;
+	/**
+	 * Path to parachain raw spec file
+	 */
 	spec?: string;
 	flags?: string[];
 	basePath?: string;
-	chain?: string;
 	onlyOneParachainNode?: boolean;
 }
 
@@ -84,6 +90,7 @@ export interface ChainSpec {
 
 export interface ResolvedParachainConfig extends ParachainConfig {
 	resolvedId: string;
+	resolvedSpec: string;
 }
 export interface ResolvedSimpleParachainConfig extends SimpleParachainConfig {
 	resolvedId: string;
