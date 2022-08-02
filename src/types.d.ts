@@ -34,6 +34,28 @@ export interface ParachainConfig {
 	id?: string;
 	balance: string;
 	chain?: string;
+	/**
+	 * Command to be called to modify built spec
+	 *
+	 * May be used to add sudoers/other things, not specified
+	 * by default chain spec
+	 *
+	 * `${spec}` placeholder will be replaced by existing spec file path
+	 *
+	 * Generated spec is read from command stdout
+	 */
+	chainInitializer?: string[];
+	/**
+	 * Command to be called to modify built raw spec
+	 *
+	 * May be used to migrate data from other chain
+	 *
+	 * `${spec}` placeholder will be replaced by existing spec file path
+	 * `${rawSpec}` placeholder will be replaced by existing raw spec file path
+	 *
+	 * Generated spec is read from command stdout
+	 */
+	chainRawInitializer?: string[];
 	nodes: ParachainNodeConfig[];
 }
 export interface SimpleParachainConfig {

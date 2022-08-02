@@ -14,6 +14,34 @@ const p: { [key: string]: ChildProcessWithoutNullStreams } = {};
 
 const execFile = util.promisify(ex);
 
+export async function runInitializer(args: string[], vars: [string, string][], name: string): Promise<string> {
+	return new Promise<string>(function (resolve, reject) {
+		if (args.length == 0)
+			throw new Error('no arguments');
+		for (let i = 0; i < args.length; i++) {
+			for (let [key, value] of vars) {
+				args[i] = args[i].replaceAll(`\${${key}}`, value);
+			}
+		}
+		p["spec"] = spawn(args[0], args.slice(1));
+		let spec = fs.createWriteStream(`${name}.json`);
+
+		// `pipe` since it deals with flushing and  we need to guarantee that the data is flushed
+		// before we resolve the promise.
+		p["spec"].stdout.pipe(spec);
+
+		p["spec"].stderr.pipe(process.stderr);
+
+		p["spec"].on("close", () => {
+			resolve(`${name}.json`);
+		});
+
+		p["spec"].on("error", (err) => {
+			reject(err);
+		});
+	});
+}
+
 // Output the chainspec of a node.
 export async function generateChainSpec(bin: string, name: string, chain?: string): Promise<string> {
 	return new Promise<string>(function (resolve, reject) {

@@ -12,6 +12,7 @@ import {
 	getParachainIdFromSpec,
 	killProcess,
 	getGitRepositoryTag,
+	runInitializer,
 } from "./spawn";
 import { 
 	connect, 
@@ -801,9 +802,32 @@ async function resolveParachainSpecs(
 		const name = `para-${id || chain || `unnamed-${Date.now()}-$`}`
 
 		let specFile = await generateChainSpec(bin, name, chain);
+		if (parachain.chainInitializer) {
+			console.log('  Initializing spec');
+			specFile = await runInitializer(
+				parachain.chainInitializer,
+				[
+					['spec', specFile],
+				],
+				`${name}-processed`,
+			);
+			console.log(`  ✓ Processed spec for ${parachain.bin}`);
+		}
 
 
 		let rawSpecFile = await generateChainSpecRaw(bin, name, specFile);
+		if (parachain.chainRawInitializer) {
+			console.log('  Initializing raw spec');
+			rawSpecFile = await runInitializer(
+				parachain.chainRawInitializer,
+				[
+					['spec', specFile],
+					['rawSpec', rawSpecFile],
+				],
+				`${name}-processed-raw`,
+			);
+			console.log(`  ✓ Processed raw spec for ${parachain.bin}`);
+		}
 		parachain.resolvedSpec = rawSpecFile;
 
 		if (parachain.resolvedId) {
