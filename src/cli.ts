@@ -54,9 +54,15 @@ process.on("SIGINT", function () {
 	process.exit(2);
 });
 
+(async () => {
+	try {
 if (argv.upgrade) 
-	runThenTryUpgrade(config_dir, config, argv.wait);
+			await runThenTryUpgrade(config_dir, config, argv.wait);
 else if (argv.upgradeParachains)
-	runThenTryUpgradeParachains(config_dir, config, argv.wait);
+			await runThenTryUpgradeParachains(config_dir, config, argv.wait);
 else 
-	run(config_dir, config);
+			await run(config_dir, config);
+	} catch (e) {
+		console.log((e as any).stack);
+	}
+})();
