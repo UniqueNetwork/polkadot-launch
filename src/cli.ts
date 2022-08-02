@@ -56,11 +56,11 @@ process.on("SIGINT", function () {
 
 (async () => {
 	try {
-if (argv.upgrade) 
+		if (argv.upgrade)
 			await runThenTryUpgrade(config_dir, config, argv.wait);
-else if (argv.upgradeParachains)
+		else if (argv.upgradeParachains)
 			await runThenTryUpgradeParachains(config_dir, config, argv.wait);
-else 
+		else
 			await run(config_dir, config);
 	} catch (e) {
 		console.log((e as any).stack);

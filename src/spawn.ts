@@ -321,7 +321,7 @@ export async function giveKeyToCollator(
 	});
 }
 
-export async function getGitRepositoryTag (
+export async function getGitRepositoryTag(
 	location: string,
 ): Promise<string> {
 	return new Promise<string>(function (resolve) {
