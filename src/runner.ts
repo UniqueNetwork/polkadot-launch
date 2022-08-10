@@ -724,10 +724,16 @@ async function waitWithTimer(time: number) {
 	for (let i = secondsTotal; i > 0; i--) {
 		// could also introduce hours, but wth
 		const seconds = i % 60;
-		process.stdout.write(`Time left: ${Math.floor(i / 60)}:${seconds < 10 ? '0' + seconds : seconds}`);
+		const text = `Time left: ${Math.floor(i / 60)}:${seconds < 10 ? '0' + seconds : seconds}`;
+		if (process.stdout.isTTY)
+			process.stdout.write(text);
+		else if (seconds % 10 == 0)
+			console.log(text);
 		await delay(1000);
-		process.stdout.clearLine(0);
-		process.stdout.cursorTo(0);
+		if (process.stdout.isTTY) {
+			process.stdout.clearLine(0);
+			process.stdout.cursorTo(0);
+		}
 	}
 }
 
