@@ -208,9 +208,9 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 
 const parachain_block_time = 12000;
 
-export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchConfig, should_wait: boolean) {
+export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchConfig, should_wait: boolean, nodes_only: boolean) {
 	// Check the config for existence and the required arguments
-	if (!checkConfig(raw_config, config_dir, true, false)) {
+	if (!checkConfig(raw_config, config_dir, true, false, nodes_only)) {
 		return;
 	}
 
@@ -233,7 +233,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 
 	const relay_chain = config.relaychain as UpgradableRelayChainConfig;
 	const upgraded_relay_chain_bin = resolve(config_dir, relay_chain.upgradeBin);
-	const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
+	const upgraded_relay_chain_wasm = nodes_only ? `` : resolve(config_dir, relay_chain.upgradeWasm);
 
 	// Fetch git tags for better recognition. A specific request.
 	const relay_old_tag = await getGitRepositoryTag(relay_chain.bin);
@@ -313,7 +313,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		);
 	}
 
-	console.log(`\nAll relay nodes restarted with the new binaries${relay_new_tag ? ` (${relay_new_tag})` : ``}.`);
+	console.log(`\n🌒 All relay nodes restarted with the new binaries${relay_new_tag ? ` (${relay_new_tag})` : ``}.`);
 
 	const parachains_info: { [id: string]: { 
 		first_node: number, 
@@ -375,10 +375,14 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		}
 	}
 
-	console.log("\nAll parachain collators restarted with the new binaries."); 
+	console.log("\n🌗 All parachain collators restarted with the new binaries."); 
 
 	// Simple parachains are not tested.
 
+	// If it is not needed to upgrade runtimes themselves, the job is done!
+	if (nodes_only) 
+		return;
+	
 	let relay_upgrade_failed, parachains_upgrade_failed = false;
 
 	console.log(`\n🚦 Starting timeout for the next epoch before upgrading the relay runtime code` +
@@ -494,9 +498,9 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	}
 }
 
-export async function runThenTryUpgradeParachains(config_dir: string, raw_config: LaunchConfig, should_wait: boolean) {
+export async function runThenTryUpgradeParachains(config_dir: string, raw_config: LaunchConfig, should_wait: boolean, nodes_only: boolean) {
 	// Check the config for existence and the required arguments
-	if (!checkConfig(raw_config, config_dir, true, true)) {
+	if (!checkConfig(raw_config, config_dir, true, true, nodes_only)) {
 		return;
 	}
 
@@ -621,9 +625,13 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 		}
 	}
 
-	console.log("\nAll parachain collators restarted with the new binaries."); 
+	console.log("\n🌗 All parachain collators restarted with the new binaries."); 
 
 	// Simple parachains are not tested.
+
+	// If it is not needed to upgrade runtimes themselves, the job is done!
+	if (nodes_only) 
+		return;
 
 	let parachains_upgrade_failed = false;
 	// Re-establish connection to the node (strange behavior otherwise) and get the runtime upgrade validation delay for parachains

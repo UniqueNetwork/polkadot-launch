@@ -12,20 +12,25 @@ import { run, runThenTryUpgrade, runThenTryUpgradeParachains } from "./runner";
 const { argv } = require("yargs")
 	.options({
 		'test-upgrade': {
-			alias: 'upgrade',
+			alias: ['upgrade', 'u', 't'],
 			type: 'boolean',
-			describe: 'Test forkless runtime upgrades',
+			describe: 'Test forkless runtime upgrades.',
 		},
 		'test-upgrade-parachains': {
-			alias: 'upgrade-parachains',
+			alias: ['upgrade-parachains', 'test-parachains', 'p'],
 			type: 'boolean',
-			describe: 'Test forkless runtime upgrades for parachains only',
+			describe: 'Test forkless runtime upgrades for parachains only.',
 			conflicts: 'test-upgrade',
 		},
 		'wait': {
-			alias: 'wait-for-input',
+			alias: ['wait-for-input', 'w'],
 			type: 'boolean',
-			describe: 'Wait for either user input or an external signal if used with runtime upgrade (useful for tests)',
+			describe: 'Wait for either user input or an external signal if used with runtime upgrade (useful for tests).',
+		},
+		'nodes-only': {
+			alias: ['nodes', 'n'],
+			type: 'boolean',
+			describe: 'Do not upgrade runtimes if used with upgrade testing, only restart nodes with new binaries.',
 		},
 	})
 const config_file = argv._[0] ? argv._[0] : null;
@@ -55,8 +60,8 @@ process.on("SIGINT", function () {
 });
 
 if (argv.upgrade) 
-	runThenTryUpgrade(config_dir, config, argv.wait);
+	runThenTryUpgrade(config_dir, config, argv.wait, argv.nodes);
 else if (argv.upgradeParachains)
-	runThenTryUpgradeParachains(config_dir, config, argv.wait);
+	runThenTryUpgradeParachains(config_dir, config, argv.wait, argv.nodes);
 else 
 	run(config_dir, config);

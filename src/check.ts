@@ -8,7 +8,7 @@ import { resolve } from "path";
 
 // This function checks that the `config.json` file has all the expected properties.
 // It displays a unique error message and returns `false` for any detected issues.
-export function checkConfig(config: LaunchConfig, config_dir?: string, isTestingUpgrade: boolean = false, isTestingParachainsOnly: boolean = false) {
+export function checkConfig(config: LaunchConfig, config_dir?: string, isTestingUpgrade: boolean = false, isTestingParachainsOnly: boolean = false, isUpgradingNodesOnly: boolean = false) {
 	if (!config) {
 		console.error("⚠ Missing config");
 		return false;
@@ -87,15 +87,17 @@ export function checkConfig(config: LaunchConfig, config_dir?: string, isTesting
 				return false;
 			}
 
-			if (!relay_chain.upgradeWasm) {
-				console.error(`⚠ Missing the 'upgradeWasm' argument for the relay chain `
-				+ `Please provide the path to the modified WASM code.`);
-				return false;
-			}
-			const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
-			if (!fs.existsSync(upgraded_relay_chain_wasm)) {
-				console.error("⚠ Upgraded relay chain WASM code does not exist: ", upgraded_relay_chain_wasm);
-				return false;
+			if (!isUpgradingNodesOnly) {
+				if (!relay_chain.upgradeWasm) {
+					console.error(`⚠ Missing the 'upgradeWasm' argument for the relay chain! `
+					+ `Please provide the path to the modified WASM code.`);
+					return false;
+				}
+				const upgraded_relay_chain_wasm = resolve(config_dir, relay_chain.upgradeWasm);
+				if (!fs.existsSync(upgraded_relay_chain_wasm)) {
+					console.error("⚠ Upgraded relay chain WASM code does not exist: ", upgraded_relay_chain_wasm);
+					return false;
+				}
 			}
 		}
 
@@ -119,15 +121,17 @@ export function checkConfig(config: LaunchConfig, config_dir?: string, isTesting
 				return false;
 			}
 
-			if (!upgradeWasm) {
-				console.error(`⚠ Missing the 'upgradeWasm' argument for the parachain ${id}! `
-				+ `Please provide the path to the modified binary.`);
-				return false;
-			}
-			const wasm = resolve(config_dir, upgradeWasm);
-			if (!fs.existsSync(wasm)) {
-				console.error("⚠ Upgraded parachain WASM code does not exist: ", wasm);
-				return false;
+			if (!isUpgradingNodesOnly) {
+				if (!upgradeWasm) {
+					console.error(`⚠ Missing the 'upgradeWasm' argument for the parachain ${id}! `
+					+ `Please provide the path to the modified binary.`);
+					return false;
+				}
+				const wasm = resolve(config_dir, upgradeWasm);
+				if (!fs.existsSync(wasm)) {
+					console.error("⚠ Upgraded parachain WASM code does not exist: ", wasm);
+					return false;
+				}
 			}
 		}
 	}
