@@ -33,6 +33,7 @@ import {
 	addGenesisParachain,
 	addGenesisHrmpChannel,
 	addBootNodes,
+	editSpec,
 } from "./spec";
 import { parachainAccount } from "./parachain";
 import { ApiPromise } from "@polkadot/api";
@@ -53,6 +54,7 @@ import type {
 import { keys as libp2pKeys } from "libp2p-crypto";
 import { hexAddPrefix, hexStripPrefix, hexToU8a } from "@polkadot/util";
 import PeerId from "peer-id";
+import { TypeRegistry } from "@polkadot/types";
 
 function loadTypeDef(types: string | object): object {
 	if (typeof types === "string") {
@@ -851,8 +853,14 @@ async function resolveParachainSpecs(
 			console.log(`  ✓ Processed spec for ${parachain.bin}`);
 		}
 
-
 		let rawSpecFile = await generateChainSpecRaw(bin, name, specFile);
+		await editSpec(rawSpecFile, spec => {
+			let registry = new TypeRegistry();
+			spec.para_id = +id!;
+			const encodedId = registry.createType('u32', +id!).toHex(true);
+			// ParachainInfo.ParachainId
+			spec.genesis.raw.top['0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f'] = encodedId;
+		});
 		if (parachain.chainRawInitializer) {
 			console.log('  Initializing raw spec');
 			rawSpecFile = await runInitializer(
