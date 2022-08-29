@@ -94,7 +94,7 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 		process.exit();
 	}
 	const specName = config.relaychain.chain;
-	const specFile = await generateChainSpec(relay_chain_bin, specName, specName);
+	let specFile = await generateChainSpec(relay_chain_bin, specName, specName);
 	// -- Start Chain Spec Modify --
 	clearAuthorities(specFile);
 	for (const node of config.relaychain.nodes) {
@@ -113,8 +113,31 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 		await addHrmpChannelsToGenesis(specFile, config.hrmpChannels);
 	}
 	addBootNodes(specFile, bootnodes);
+	if (config.relaychain.chainInitializer) {
+		console.log('  Initializing spec');
+		specFile = await runInitializer(
+			config.relaychain.chainInitializer,
+			[
+				['spec', specFile],
+			],
+			`${specName}-processed`,
+		);
+		console.log(`  ✓ Processed spec for ${config.relaychain.bin}`);
+	}
 	// -- End Chain Spec Modify --
-	const rawSpecFile = await generateChainSpecRaw(relay_chain_bin, specName, specFile);
+	let rawSpecFile = await generateChainSpecRaw(relay_chain_bin, specName, specFile);
+	if (config.relaychain.chainRawInitializer) {
+		console.log('  Initializing raw spec');
+		rawSpecFile = await runInitializer(
+			config.relaychain.chainRawInitializer,
+			[
+				['spec', specFile],
+				['rawSpec', rawSpecFile],
+			],
+			`${specName}-processed-raw`,
+		);
+		console.log(`  ✓ Processed raw spec for ${config.relaychain.bin}`);
+	}
 
 	// First we launch each of the validators for the relay chain.
 	for (const node of config.relaychain.nodes) {

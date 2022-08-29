@@ -29,11 +29,7 @@ export interface ParachainNodeConfig {
 	name?: string;
 	flags: string[];
 }
-export interface ParachainConfig {
-	bin: string;
-	id?: string;
-	balance: string;
-	chain?: string;
+export interface WithChainInitializer {
 	/**
 	 * Command to be called to modify built spec
 	 *
@@ -56,6 +52,12 @@ export interface ParachainConfig {
 	 * Generated spec is read from command stdout
 	 */
 	chainRawInitializer?: string[];
+}
+export interface ParachainConfig extends WithChainInitializer {
+	bin: string;
+	id?: string;
+	balance: string;
+	chain?: string;
 	/**
 	 * If `true` - then this chain already has data
 	 *
@@ -88,7 +90,7 @@ export interface HrmpChannelsConfig {
 interface ObjectJSON {
 	[key: string]: ObjectJSON | number | string;
 }
-export interface RelayChainConfig {
+export interface RelayChainConfig extends WithChainInitializer {
 	bin: string;
 	chain: string;
 	nodes: {
