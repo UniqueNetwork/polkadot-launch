@@ -856,7 +856,8 @@ async function resolveParachainSpecs(
 		let rawSpecFile = await generateChainSpecRaw(bin, name, specFile);
 		await editSpec(rawSpecFile, spec => {
 			let registry = new TypeRegistry();
-			spec.para_id = +id!;
+			if ('para_id' in spec)
+				spec.para_id = +id!;
 			const encodedId = registry.createType('u32', +id!).toHex(true);
 			// ParachainInfo.ParachainId
 			spec.genesis.raw.top['0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f'] = encodedId;
