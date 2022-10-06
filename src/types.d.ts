@@ -1,9 +1,15 @@
 export interface CollatorOptions {
 	name?: string;
+	/**
+	 * Path to relay chain raw spec file
+	 */
+	relaySpec?: string;
+	/**
+	 * Path to parachain raw spec file
+	 */
 	spec?: string;
 	flags?: string[];
 	basePath?: string;
-	chain?: string;
 	onlyOneParachainNode?: boolean;
 }
 
@@ -23,11 +29,50 @@ export interface ParachainNodeConfig {
 	name?: string;
 	flags: string[];
 }
-export interface ParachainConfig {
+export interface WithChainInitializer {
+	/**
+	 * Command to be called to modify built spec
+	 *
+	 * May be used to add sudoers/other things, not specified
+	 * by default chain spec
+	 *
+	 * `${spec}` placeholder will be replaced by existing spec file path
+	 *
+	 * Generated spec is read from command stdout
+	 */
+	chainInitializer?: string[];
+	/**
+	 * Command to be called to modify built raw spec
+	 *
+	 * May be used to migrate data from other chain
+	 *
+	 * `${spec}` placeholder will be replaced by existing spec file path
+	 * `${rawSpec}` placeholder will be replaced by existing raw spec file path
+	 *
+	 * Generated spec is read from command stdout
+	 */
+	chainRawInitializer?: string[];
+}
+export interface ParachainConfig extends WithChainInitializer {
 	bin: string;
 	id?: string;
 	balance: string;
 	chain?: string;
+	/**
+	 * If `true` - then this chain already has data
+	 *
+	 * Instead of using genesis to save chain data, dummy values
+	 * will be stored in genesis, and after parachain start -
+	 * existing head and data (will be obtained from first defined collator)
+	 * will be feed to relay using `forceSetCurrentCode`/`forceSetCurrentHead`
+	 *
+	 * Make sure you have parachain `id` set to value already present
+	 * in parachain database, as this option doesn't resets `ParachainInfo.ParachainId`,
+	 * and you have set `baseDir` to first/all defined nodes
+	 *
+	 * Parachain will fail to start in case if there is pending XCM messages in queue
+	 */
+	prepopulated?: boolean;
 	nodes: ParachainNodeConfig[];
 }
 export interface SimpleParachainConfig {
@@ -45,7 +90,7 @@ export interface HrmpChannelsConfig {
 interface ObjectJSON {
 	[key: string]: ObjectJSON | number | string;
 }
-export interface RelayChainConfig {
+export interface RelayChainConfig extends WithChainInitializer {
 	bin: string;
 	chain: string;
 	nodes: {
@@ -84,6 +129,7 @@ export interface ChainSpec {
 
 export interface ResolvedParachainConfig extends ParachainConfig {
 	resolvedId: string;
+	resolvedSpec: string;
 }
 export interface ResolvedSimpleParachainConfig extends SimpleParachainConfig {
 	resolvedId: string;

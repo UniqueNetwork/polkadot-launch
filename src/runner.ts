@@ -12,15 +12,18 @@ import {
 	getParachainIdFromSpec,
 	killProcess,
 	getGitRepositoryTag,
+	runInitializer,
 } from "./spawn";
-import { 
-	connect, 
+import {
+	connect,
 	setBalance,
 	upgradeRelayRuntime,
 	upgradeParachainRuntime,
 	getRelayInfo,
 	getSpecVersion,
 	getCodeValidationDelay,
+	executeTransaction,
+	privateKey,
 } from "./rpc";
 import { checkConfig } from "./check";
 import {
@@ -30,6 +33,7 @@ import {
 	addGenesisParachain,
 	addGenesisHrmpChannel,
 	addBootNodes,
+	editSpec,
 } from "./spec";
 import { parachainAccount } from "./parachain";
 import { ApiPromise } from "@polkadot/api";
@@ -50,6 +54,7 @@ import type {
 import { keys as libp2pKeys } from "libp2p-crypto";
 import { hexAddPrefix, hexStripPrefix, hexToU8a } from "@polkadot/util";
 import PeerId from "peer-id";
+import { TypeRegistry } from "@polkadot/types";
 
 function loadTypeDef(types: string | object): object {
 	if (typeof types === "string") {
@@ -67,20 +72,20 @@ function loadTypeDef(types: string | object): object {
 }
 
 function delay(ms: number) {
-	return new Promise( resolve => setTimeout(resolve, ms) );
+	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // keep track of registered parachains
 let registeredParachains: { [key: string]: boolean } = {};
 
-export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<ResolvedLaunchConfig|null> {
+export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<ResolvedLaunchConfig | null> {
 	// We need to reset that variable when running a new network
 	registeredParachains = {};
 	// Verify that the `config.json` has all the expected properties.
 	if (!checkConfig(rawConfig)) {
 		return null;
 	}
-	const config = await resolveParachainId(config_dir, rawConfig);
+	const config = await resolveParachainSpecs(config_dir, rawConfig);
 	var bootnodes = await generateNodeKeys(config);
 
 	const relay_chain_bin = resolve(config_dir, config.relaychain.bin);
@@ -88,29 +93,51 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 		console.error("Relay chain binary does not exist: ", relay_chain_bin);
 		process.exit();
 	}
-	const chain = config.relaychain.chain;
-	await generateChainSpec(relay_chain_bin, chain);
+	const specName = config.relaychain.chain;
+	let specFile = await generateChainSpec(relay_chain_bin, specName, specName);
 	// -- Start Chain Spec Modify --
-	clearAuthorities(`${chain}.json`);
+	clearAuthorities(specFile);
 	for (const node of config.relaychain.nodes) {
-		await addAuthority(`${chain}.json`, node.name);
+		await addAuthority(specFile, node.name);
 	}
 	if (config.relaychain.genesis) {
-		await changeGenesisConfig(`${chain}.json`, config.relaychain.genesis);
+		await changeGenesisConfig(specFile, config.relaychain.genesis);
 	}
 	await addParachainsToGenesis(
 		config_dir,
-		`${chain}.json`,
+		specFile,
 		config.parachains,
 		config.simpleParachains
 	);
 	if (config.hrmpChannels) {
-		await addHrmpChannelsToGenesis(`${chain}.json`, config.hrmpChannels);
+		await addHrmpChannelsToGenesis(specFile, config.hrmpChannels);
 	}
-	addBootNodes(`${chain}.json`, bootnodes);
+	addBootNodes(specFile, bootnodes);
+	if (config.relaychain.chainInitializer) {
+		console.log('  Initializing spec');
+		specFile = await runInitializer(
+			config.relaychain.chainInitializer,
+			[
+				['spec', specFile],
+			],
+			`${specName}-processed`,
+		);
+		console.log(`  ✓ Processed spec for ${config.relaychain.bin}`);
+	}
 	// -- End Chain Spec Modify --
-	await generateChainSpecRaw(relay_chain_bin, chain);
-	const spec = resolve(`${chain}-raw.json`);
+	let rawSpecFile = await generateChainSpecRaw(relay_chain_bin, specName, specFile);
+	if (config.relaychain.chainRawInitializer) {
+		console.log('  Initializing raw spec');
+		rawSpecFile = await runInitializer(
+			config.relaychain.chainRawInitializer,
+			[
+				['spec', specFile],
+				['rawSpec', rawSpecFile],
+			],
+			`${specName}-processed-raw`,
+		);
+		console.log(`  ✓ Processed raw spec for ${config.relaychain.bin}`);
+	}
 
 	// First we launch each of the validators for the relay chain.
 	for (const node of config.relaychain.nodes) {
@@ -128,7 +155,7 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 			rpcPort,
 			port,
 			nodeKey!,
-			spec,
+			rawSpecFile,
 			flags,
 			basePath
 		);
@@ -140,9 +167,12 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 		loadTypeDef(config.types)
 	);
 
+	const relayRawSpecFile = rawSpecFile;
+
 	// Then launch each parachain
 	for (const parachain of config.parachains) {
-		const { resolvedId, balance, chain: paraChain } = parachain;
+		const { resolvedId, balance, resolvedSpec } = parachain;
+		const name = `para-${resolvedId}`;
 
 		const bin = resolve(config_dir, parachain.bin);
 		if (!fs.existsSync(bin)) {
@@ -153,19 +183,36 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 
 		for (const node of parachain.nodes) {
 			const { wsPort, port, flags, name, basePath, rpcPort } = node;
-			console.log(
-				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
-			);
+			console.log(`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`);
 			await startCollator(bin, wsPort, rpcPort, port, {
 				name,
-				spec,
+				relaySpec: relayRawSpecFile,
+				spec: resolvedSpec,
 				flags,
-				chain: paraChain,
 				basePath,
 				onlyOneParachainNode: parachain.nodes.length === 1,
 			});
 			// Send a specified key to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
+		}
+
+		if (parachain.prepopulated) {
+			console.log('Restoring parachain state, using data from first collator');
+			let parachainApi: ApiPromise = await connect(
+				parachain.nodes[0].wsPort,
+				{}
+			);
+			const block = await parachainApi.rpc.chain.getBlock();
+			const head = block.block.header.toHex();
+			const code = (await parachainApi.rpc.state.getStorage(':code') as any).toHex();
+
+			const alice = privateKey('//Alice');
+			console.log(`--- Submitting extrinsic to force head ---`);
+			await executeTransaction(relayChainApi, alice, relayChainApi.tx.sudo.sudo((relayChainApi.tx as any).paras.forceSetCurrentHead(resolvedId, head)), true);
+			console.log(`--- Submitting extrinsic to force code ---`);
+			await executeTransaction(relayChainApi, alice, relayChainApi.tx.sudo.sudo((relayChainApi.tx as any).paras.forceSetCurrentCode(resolvedId, `0x${code}`)), true);
+
+			await parachainApi.disconnect();
 		}
 
 		// Allow time for the TX to complete, avoiding nonce issues.
@@ -188,7 +235,7 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 			let account = parachainAccount(resolvedId);
 			console.log(`Starting Parachain ${resolvedId}: ${account}`);
 			const skipIdArg = !id;
-			await startSimpleCollator(bin, resolvedId, spec, port, skipIdArg);
+			await startSimpleCollator(bin, resolvedId, relayRawSpecFile, port, skipIdArg);
 
 			// Allow time for the TX to complete, avoiding nonce issues.
 			// TODO: Handle nonce directly instead of this.
@@ -214,14 +261,13 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		return;
 	}
 
-	let config = await resolveParachainId(config_dir, raw_config);
-	
+	let config = await resolveParachainSpecs(config_dir, raw_config);
+
 	// Generate chain specs for parachains that do not have them specified
 	for (let parachain of config.parachains) {
 		const { resolvedId, chain: parachainSpec } = parachain;
 
 		if (!parachainSpec) {
-			await generateChainSpecRaw(parachain.bin, "", resolvedId);
 			parachain.chain = `${resolvedId}-raw.json`;
 		} else {
 			if (!fs.existsSync(resolve(config_dir, parachainSpec))) {
@@ -264,7 +310,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		}
 	}
 
-	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶 
+	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶
 
 	const chain = config.relaychain.chain;
 	const spec = resolve(`${chain}-raw.json`);
@@ -281,16 +327,16 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	await relay_chain_api.disconnect();
 	// Prettify the output, otherwise potential warnings may spill over the next few lines
 	await waitForExtraOutput();
-	
+
 	let node_count = 0;
 	// Stop the relay nodes one by one with a delay equal to or higher than the epoch time
 	for (const node of config.relaychain.nodes) {
 		node_count++;
-		console.log(`\n🚦 Starting timeout for the epoch change (` + 
+		console.log(`\n🚦 Starting timeout for the epoch change (` +
 			(relay_old_tag ? `${relay_old_tag} > ${relay_new_tag}, ` : ``) +
 			`node ${node_count}/${config.relaychain.nodes.length})...`);
 		await waitWithTimer(epoch_time);
-		
+
 		const { name, wsPort, rpcPort, port, flags, basePath, nodeKey } = node;
 
 		console.log("Stopping the next relay node...");
@@ -315,19 +361,21 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 
 	console.log(`\n🌒 All relay nodes restarted with the new binaries${relay_new_tag ? ` (${relay_new_tag})` : ``}.`);
 
-	const parachains_info: { [id: string]: { 
-		first_node: number, 
-		old_version: number, 
-		has_updated: boolean,
-		old_tag: string,
-		new_tag: string,
-	 } } = {};
-	 
+	const parachains_info: {
+		[id: string]: {
+			first_node: number,
+			old_version: number,
+			has_updated: boolean,
+			old_tag: string,
+			new_tag: string,
+		}
+	} = {};
+
 	// Then restart each parachain
 	for (const parachain of config.parachains) {
-		const { resolvedId, chain: parachain_spec, bin: old_bin } = parachain;
+		const { resolvedId, resolvedSpec, bin: old_bin } = parachain;
 		const new_bin = resolve(config_dir, (parachain as UpgradableResolvedParachainConfig).upgradeBin);
-		
+
 		if (parachain.nodes.length > 0) {
 			let parachain_api: ApiPromise = await connect(
 				parachain.nodes[0].wsPort,
@@ -360,16 +408,16 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 			);
 			await startCollator(new_bin, wsPort, rpcPort, port, {
 				name,
-				spec,
+				relaySpec: spec,
 				flags,
-				chain: parachain_spec,
+				spec: resolvedSpec,
 				basePath,
 				onlyOneParachainNode: config.parachains.length === 1,
 			});
 
 			console.log("🚥 Waiting for the node to be brought up...");
 			await waitWithTimer(parachain_block_time);
-			
+
 			// Send specified keys to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
@@ -388,7 +436,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	console.log(`\n🚦 Starting timeout for the next epoch before upgrading the relay runtime code` +
 		(relay_old_tag ? ` (${relay_old_tag} > ${relay_new_tag})` : ``) + `...`);
 	await waitWithTimer(epoch_time);
-	
+
 	// Connect to alice on the relay (the first node, assumed to be the superuser) and run a forkless runtime upgrade
 	relay_chain_api = await connect(
 		config.relaychain.nodes[0].wsPort,
@@ -404,11 +452,11 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
-	
-	let { 
-		specVersion: relay_new_version, 
-		epochLength: new_epoch_length, 
-		blockTime: new_relay_block_time 
+
+	let {
+		specVersion: relay_new_version,
+		epochLength: new_epoch_length,
+		blockTime: new_relay_block_time
 	} = await getRelayInfo(relay_chain_api);
 
 	await relay_chain_api.disconnect();
@@ -418,7 +466,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
-	
+
 	const code_validation_delay = Math.ceil(new_relay_block_time * (await getCodeValidationDelay(relay_chain_api)));// + parachain_block_time;
 
 	await relay_chain_api.disconnect();
@@ -437,7 +485,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	// For each parachain, connect, authorize and upgrade its runtime
 	for (const parachain of config.parachains) {
 		const { upgradeWasm: wasm, resolvedId } = parachain as UpgradableResolvedParachainConfig;
-		
+
 		if (parachains_info[resolvedId]) {
 			let parachain_api: ApiPromise = await connect(
 				parachains_info[resolvedId].first_node,
@@ -466,7 +514,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		for (const parachain of config.parachains) {
 			const { resolvedId } = parachain as UpgradableResolvedParachainConfig;
 			if (parachains_info[resolvedId].has_updated) continue;
-			
+
 			if (parachains_info[resolvedId]) {
 				let parachain_api: ApiPromise = await connect(
 					parachains_info[resolvedId].first_node,
@@ -504,22 +552,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 		return;
 	}
 
-	let config = await resolveParachainId(config_dir, raw_config);
-	
-	// Generate chain specs for parachains that do not have them specified
-	for (let parachain of config.parachains) {
-		const { resolvedId, chain: parachainSpec } = parachain;
-
-		if (!parachainSpec) {
-			await generateChainSpecRaw(parachain.bin, "", resolvedId);
-			parachain.chain = `${resolvedId}-raw.json`;
-		} else {
-			if (!fs.existsSync(resolve(config_dir, parachainSpec))) {
-				console.error(`⚠ The specified chain spec file for parachain ${resolvedId} does not exist: ${parachainSpec}`);
-				return false;
-			}
-		}
-	}
+	let config = await resolveParachainSpecs(config_dir, raw_config);
 
 	// Actually launch the nodes and get the resolved config. Since the config has been already checked, it must exist
 	config = (await run(config_dir, raw_config))!;
@@ -546,7 +579,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 		}
 	}
 
-	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶 
+	console.log("\nNow preparing for runtime upgrade testing..."); // 🧶
 
 	const chain = config.relaychain.chain;
 	const spec = resolve(`${chain}-raw.json`);
@@ -563,21 +596,23 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 	await relay_chain_api.disconnect();
 	// Prettify the output, otherwise potential warnings may spill over the next few lines
 	await waitForExtraOutput();
-	
-	const parachains_info: { [id: string]: { 
-		first_node: number, 
-		old_version: number, 
-		has_updated: boolean,
-		old_tag: string,
-		new_tag: string,
-	 } } = {};
-	 
-	
+
+	const parachains_info: {
+		[id: string]: {
+			first_node: number,
+			old_version: number,
+			has_updated: boolean,
+			old_tag: string,
+			new_tag: string,
+		}
+	} = {};
+
+
 	// Then restart each parachain
 	for (const parachain of config.parachains) {
-		const { resolvedId, chain: parachain_spec, bin: old_bin } = parachain;
+		const { resolvedId, resolvedSpec, bin: old_bin } = parachain;
 		const new_bin = resolve(config_dir, (parachain as UpgradableResolvedParachainConfig).upgradeBin);
-		
+
 		if (parachain.nodes.length > 0) {
 			let parachain_api: ApiPromise = await connect(
 				parachain.nodes[0].wsPort,
@@ -596,7 +631,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 			// Prettify the output, otherwise potential warnings may spill over the next few lines
 			await waitForExtraOutput();
 		}
-		
+
 		// Stop and restart each node
 		for (const node of parachain.nodes) {
 			const { wsPort, port, flags, name, basePath, rpcPort } = node;
@@ -610,16 +645,16 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 			);
 			await startCollator(new_bin, wsPort, rpcPort, port, {
 				name,
-				spec,
+				relaySpec: spec,
 				flags,
-				chain: parachain_spec,
+				spec: resolvedSpec,
 				basePath,
 				onlyOneParachainNode: config.parachains.length === 1,
 			});
 
 			console.log("🚥 Waiting for the node to be brought up...");
 			await waitWithTimer(parachain_block_time);
-			
+
 			// Send specified keys to parachain nodes in case the parachain requires it
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
@@ -639,7 +674,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 		config.relaychain.nodes[0].wsPort,
 		loadTypeDef(config.types)
 	);
-	
+
 	const code_validation_delay = Math.ceil(blockTime * (await getCodeValidationDelay(relay_chain_api)));// + parachain_block_time;
 
 	await relay_chain_api.disconnect();
@@ -651,7 +686,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 	// For each parachain, connect, authorize and upgrade its runtime
 	for (const parachain of config.parachains) {
 		const { upgradeWasm: wasm, resolvedId } = parachain as UpgradableResolvedParachainConfig;
-		
+
 		if (parachains_info[resolvedId]) {
 			let parachain_api: ApiPromise = await connect(
 				parachains_info[resolvedId].first_node,
@@ -680,7 +715,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 		for (const parachain of config.parachains) {
 			const { resolvedId } = parachain as UpgradableResolvedParachainConfig;
 			if (parachains_info[resolvedId].has_updated) continue;
-			
+
 			if (parachains_info[resolvedId]) {
 				let parachain_api: ApiPromise = await connect(
 					parachains_info[resolvedId].first_node,
@@ -753,8 +788,10 @@ async function applyAuraKey(node: KeyedParachainNodeConfig, config_dir: string) 
 interface GenesisParachain {
 	isSimple: boolean;
 	resolvedId: string;
+	resolvedSpec?: string;
 	chain?: string;
 	bin: string;
+	prepopulated?: boolean;
 }
 
 async function addParachainsToGenesis(
@@ -775,7 +812,7 @@ async function addParachainsToGenesis(
 	let paras = x.concat(y);
 
 	for (const parachain of paras) {
-		const { resolvedId, chain } = parachain;
+		const { resolvedId, resolvedSpec, chain, prepopulated } = parachain;
 		const bin = resolve(config_dir, parachain.bin);
 		if (!fs.existsSync(bin)) {
 			console.error("Parachain binary does not exist: ", bin);
@@ -786,12 +823,19 @@ async function addParachainsToGenesis(
 			// Get the information required to register the parachain in genesis.
 			let genesisState: string;
 			let genesisWasm: string;
-			try {
-				genesisState = await exportGenesisState(bin, chain);
-				genesisWasm = await exportGenesisWasm(bin, chain);
-			} catch (err) {
-				console.error(err);
-				process.exit(1);
+			if (prepopulated) {
+				// We will later upload this data to relay
+				genesisState = '0x';
+				// Polkadot has "empty validation code is not allowed in genesis" check
+				genesisWasm = '0x00';
+			} else {
+				try {
+					genesisState = await exportGenesisState(bin, resolvedSpec || chain);
+					genesisWasm = await exportGenesisWasm(bin, resolvedSpec || chain);
+				} catch (err) {
+					console.error(err);
+					process.exit(1);
+				}
 			}
 
 			await addGenesisParachain(
@@ -817,20 +861,60 @@ async function addHrmpChannelsToGenesis(
 }
 
 // Resolves parachain id from chain spec if not specified
-async function resolveParachainId(
+async function resolveParachainSpecs(
 	config_dir: string,
 	config: LaunchConfig
 ): Promise<ResolvedLaunchConfig> {
-	console.log(`\n🧹 Resolving parachain id...`);
+	console.log(`\n🧹 Resolving parachain specs...`);
 	const resolvedConfig = config as ResolvedLaunchConfig;
 	for (const parachain of resolvedConfig.parachains) {
+		const { bin, id, chain } = parachain;
+		const name = `para-${id || chain || `unnamed-${Date.now()}-$`}`
+
+		let specFile = await generateChainSpec(bin, name, chain);
+		if (parachain.chainInitializer) {
+			console.log('  Initializing spec');
+			specFile = await runInitializer(
+				parachain.chainInitializer,
+				[
+					['spec', specFile],
+				],
+				`${name}-processed`,
+			);
+			console.log(`  ✓ Processed spec for ${parachain.bin}`);
+		}
+
+		let rawSpecFile = await generateChainSpecRaw(bin, name, specFile);
+		await editSpec(rawSpecFile, spec => {
+			let registry = new TypeRegistry();
+			if ('para_id' in spec)
+				spec.para_id = +id!;
+			if ('paraId' in spec)
+				spec.paraId = +id!;
+			const encodedId = registry.createType('u32', +id!).toHex(true);
+			// ParachainInfo.ParachainId
+			spec.genesis.raw.top['0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f'] = encodedId;
+		});
+		if (parachain.chainRawInitializer) {
+			console.log('  Initializing raw spec');
+			rawSpecFile = await runInitializer(
+				parachain.chainRawInitializer,
+				[
+					['spec', specFile],
+					['rawSpec', rawSpecFile],
+				],
+				`${name}-processed-raw`,
+			);
+			console.log(`  ✓ Processed raw spec for ${parachain.bin}`);
+		}
+		parachain.resolvedSpec = rawSpecFile;
+
 		if (parachain.resolvedId) {
 			continue;
 		} else if (parachain.id) {
 			parachain.resolvedId = parachain.id;
 		} else {
-			const bin = resolve(config_dir, parachain.bin);
-			const paraId = await getParachainIdFromSpec(bin, parachain.chain);
+			const paraId = await getParachainIdFromSpec(bin, parachain.resolvedSpec);
 			console.log(`  ✓ Read parachain id for ${parachain.bin}: ${paraId}`);
 			parachain.resolvedId = paraId.toString();
 		}

@@ -225,3 +225,11 @@ export async function addBootNodes(spec: any, addresses: any) {
 	fs.writeFileSync(spec, data);
 	console.log(`Added Boot Nodes: ${addresses}`);
 }
+
+export async function editSpec(spec: string, editor: (spec: any) => any) {
+	let rawdata = fs.readFileSync(spec);
+	let chainSpec = JSON.parse(rawdata);
+	editor(chainSpec);
+	let data = JSON.stringify(chainSpec, null, 2);
+	fs.writeFileSync(spec, data);
+}
