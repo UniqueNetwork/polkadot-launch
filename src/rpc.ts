@@ -3,8 +3,7 @@ import { Keyring } from "@polkadot/api";
 import { KeyringPair } from "@polkadot/keyring/types";
 import { cryptoWaitReady, blake2AsHex } from "@polkadot/util-crypto";
 import fs from "fs";
-
-const filterConsole = require("filter-console");
+import filterConsole from "filter-console";
 
 // Hide some warning messages that are coming from Polkadot JS API.
 // TODO: Make configurable.
@@ -83,7 +82,7 @@ export async function executeTransaction(
 	return new Promise<void>(async (resolvePromise, reject) => {
 		await cryptoWaitReady();
 
-		const nonce = Number((await api.query.system.account(sender.address)).nonce);
+		const nonce = Number((await api.query.system.account(sender.address) as any).nonce);
 
 		const unsub = await tx
 			.signAndSend(sender, { nonce: nonce, era: 0 }, (result: any) => {
@@ -169,16 +168,16 @@ export interface RelayInfo {
 export async function getSpecVersion(
 	api: ApiPromise,
 ): Promise<number> {
-	return api.consts.system.version.specVersion.toNumber();
+	return (api.consts.system.version as any).specVersion.toNumber();
 }
 
 export async function getRelayInfo(
 	api: ApiPromise,
 ): Promise<RelayInfo> {
 	const info = {
-		specVersion: api.consts.system.version.specVersion.toNumber(),
-		epochLength: api.consts.babe.epochDuration.toNumber(),
-		blockTime: api.consts.babe.expectedBlockTime.toNumber(),
+		specVersion: (api.consts.system.version as any).specVersion.toNumber(),
+		epochLength: (api.consts.babe.epochDuration as any).toNumber(),
+		blockTime: (api.consts.babe.expectedBlockTime as any).toNumber(),
 	};
 	return info;
 }
