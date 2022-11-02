@@ -341,7 +341,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		const { name, wsPort, rpcPort, port, flags, basePath, nodeKey } = node;
 
 		console.log("Stopping the next relay node...");
-		killProcess(node.name);
+		await killProcess(node.name);
 
 		const address = encodeAddress(hexAddPrefix(nodeKey!));
 		console.log(
@@ -402,7 +402,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 			let account = parachainAccount(resolvedId); // todo
 
 			console.log("\nStopping the next collator node...");
-			killProcess(node.wsPort);
+			await killProcess(node.wsPort);
 
 			console.log(
 				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
@@ -527,7 +527,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 
 				if (spec_version != parachains_info[resolvedId].old_version) {
 					await setMaintenanceMode(parachain_api, false);
-					
+
 					console.log(`\n\🛰️  Parachain ${resolvedId} has successfully upgraded from ` +
 						`version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
 					parachains_info[resolvedId].has_updated = true;
@@ -642,7 +642,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 			let account = parachainAccount(resolvedId); // todo
 
 			console.log("\nStopping the next collator node...");
-			killProcess(node.wsPort);
+			await killProcess(node.wsPort);
 
 			console.log(
 				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`

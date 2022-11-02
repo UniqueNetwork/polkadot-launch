@@ -409,8 +409,28 @@ export function killAll() {
 	}
 }
 
+function checkRunning(pid: number) {
+    try {
+        return process.kill(pid, 0);
+    } catch (e: any) {
+        return e.code === 'EPERM';
+    }
+}
+
 // Kill a process spawned and tracked by this file.
-export function killProcess(key: string | number) {
+export async function killProcess(key: string | number) {
+	const pid = p[key].pid!;
 	p[key].kill('SIGINT');
+
+	// Make sure the node is dead before continuing.
+	let stillAlive = true;
+	while (stillAlive) {
+		await new Promise((resolve) => {
+			setTimeout(resolve, 100);
+			stillAlive = checkRunning(pid);
+			if (stillAlive) { console.warn('Node is still alive, waiting for it to die...'); }
+		});
+	}
+	
 	console.log(`Process ${key} stopped.`);
 }
