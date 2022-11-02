@@ -24,6 +24,7 @@ import {
 	getCodeValidationDelay,
 	executeTransaction,
 	privateKey,
+	setMaintenanceMode,
 } from "./rpc";
 import { checkConfig } from "./check";
 import {
@@ -491,6 +492,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 				parachains_info[resolvedId].first_node,
 				loadTypeDef(config.types)
 			);
+			await setMaintenanceMode(parachain_api, true);
 			await upgradeParachainRuntime(parachain_api, wasm, true, parachains_info[resolvedId].old_tag, parachains_info[resolvedId].new_tag);
 			await parachain_api.disconnect();
 			await waitForExtraOutput();
@@ -523,10 +525,9 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 
 				const spec_version = await getSpecVersion(parachain_api);
 
-				await parachain_api.disconnect();
-				await waitForExtraOutput();
-
 				if (spec_version != parachains_info[resolvedId].old_version) {
+					await setMaintenanceMode(parachain_api, false);
+					
 					console.log(`\n\🛰️  Parachain ${resolvedId} has successfully upgraded from ` +
 						`version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
 					parachains_info[resolvedId].has_updated = true;
@@ -535,6 +536,9 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 					//process.exit();
 					parachains_upgrade_failed = true;
 				}
+
+				await parachain_api.disconnect();
+				await waitForExtraOutput();
 			}
 		}
 	}
@@ -692,6 +696,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 				parachains_info[resolvedId].first_node,
 				loadTypeDef(config.types)
 			);
+			await setMaintenanceMode(parachain_api, true);
 			await upgradeParachainRuntime(parachain_api, wasm, true, parachains_info[resolvedId].old_tag, parachains_info[resolvedId].new_tag);
 			await parachain_api.disconnect();
 			await waitForExtraOutput();
@@ -724,10 +729,9 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 
 				const spec_version = await getSpecVersion(parachain_api);
 
-				await parachain_api.disconnect();
-				await waitForExtraOutput();
-
 				if (spec_version != parachains_info[resolvedId].old_version) {
+					await setMaintenanceMode(parachain_api, false);
+					
 					console.log(`\n\🛰️  Parachain ${resolvedId} has successfully upgraded from ` +
 						`version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
 					parachains_info[resolvedId].has_updated = true;
@@ -735,6 +739,9 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 					console.error(`\nParachain ${resolvedId} failed to upgrade from version ${parachains_info[resolvedId].old_version}!`);
 					parachains_upgrade_failed = true;
 				}
+
+				await parachain_api.disconnect();
+				await waitForExtraOutput();
 			}
 		}
 	}

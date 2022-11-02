@@ -44,7 +44,7 @@ export async function registerParachain(
 ) {
 	await cryptoWaitReady();
 
-	const alice = privateKey("//Alice");
+	const superuser = privateKey("//Alice");
 
 	let paraGenesisArgs = {
 		genesis_head: header,
@@ -54,7 +54,7 @@ export async function registerParachain(
 	let genesis = api.createType("ParaGenesisArgs", paraGenesisArgs);
 
 	console.log(`--- Submitting extrinsic to register parachain ${id}. ---`);
-	await executeTransaction(api, alice, api.tx.sudo.sudo(api.tx.parasSudoWrapper.sudoScheduleParaInitialize(id, genesis)), finalization);
+	await executeTransaction(api, superuser, api.tx.sudo.sudo(api.tx.parasSudoWrapper.sudoScheduleParaInitialize(id, genesis)), finalization);
 }
 
 // Set the balance of an account on the relay chain.
@@ -66,10 +66,10 @@ export async function setBalance(
 ) {
 	await cryptoWaitReady();
 
-	const alice = privateKey('//Alice');
+	const superuser = privateKey('//Alice');
 
 	console.log(`--- Submitting extrinsic to set balance of ${who} to ${value}. ---`);
-	await executeTransaction(api, alice, api.tx.sudo.sudo(api.tx.balances.setBalance(who, value, 0)), finalization);
+	await executeTransaction(api, superuser, api.tx.sudo.sudo(api.tx.balances.setBalance(who, value, 0)), finalization);
 }
 
 // Set the balance of an account on the relay chain.
@@ -127,12 +127,12 @@ export async function upgradeRelayRuntime(
 ) {
 	await cryptoWaitReady();
 
-	const alice = privateKey("//Alice");
+	const superuser = privateKey("//Alice");
 
 	const code = fs.readFileSync(wasm).toString('hex');
 
 	console.log(`--- Upgrading the relay chain runtime from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. ---`);
-	await executeTransaction(api, alice, api.tx.sudo.sudoUncheckedWeight(api.tx.system.setCode(`0x${code}`), 0));
+	await executeTransaction(api, superuser, api.tx.sudo.sudoUncheckedWeight(api.tx.system.setCode(`0x${code}`), 0));
 }
 
 // Perform a forkless runtime upgrade on a parachain
@@ -148,15 +148,27 @@ export async function upgradeParachainRuntime(
 
 	await cryptoWaitReady();
 
-	const alice = privateKey("//Alice");
+	const superuser = privateKey("//Alice");
 
 	console.log(`--- Authorizing the parachain runtime upgrade from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. ---`);
-	await executeTransaction(api, alice, api.tx.sudo
+	await executeTransaction(api, superuser, api.tx.sudo
 		.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash), 0), finalization);
 
 	console.log(`--- Upgrading the parachain runtime. ---`);
-	await executeTransaction(api, alice, api.tx.sudo
+	await executeTransaction(api, superuser, api.tx.sudo
 		.sudoUncheckedWeight(api.tx.parachainSystem.enactAuthorizedUpgrade(`0x${code.toString('hex')}`), 0));
+}
+
+export async function setMaintenanceMode(api: ApiPromise, value: boolean) {
+	await cryptoWaitReady();
+
+	const superuser = privateKey("//Alice");
+	try {
+		const tx = value ? api.tx.maintenance.enable() : api.tx.maintenance.disable();
+		await executeTransaction(api, superuser, api.tx.sudo.sudo(tx));
+	} catch (_) {
+		console.error('Couldn\'t set maintenance mode. The maintenance pallet probably does not exist.');
+	}
 }
 
 export interface RelayInfo {
@@ -204,7 +216,7 @@ export async function sendHrmpMessage(
 ) {
 	await cryptoWaitReady();
 
-	const alice = privateKey("//Alice");
+	const superuser = privateKey("//Alice");
 
 	let hrmpMessage = {
 		recipient: recipient,
@@ -213,6 +225,6 @@ export async function sendHrmpMessage(
 	let message = api.createType("OutboundHrmpMessage", hrmpMessage);
 
 	console.log(`--- Sending a message to ${recipient}. ---`);
-	await executeTransaction(api, alice, api.tx.sudo
+	await executeTransaction(api, superuser, api.tx.sudo
 		.sudo(api.tx.messageBroker.sudoSendHrmpMessage(message)), finalization);
 }
