@@ -526,8 +526,6 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 				const spec_version = await getSpecVersion(parachain_api);
 
 				if (spec_version != parachains_info[resolvedId].old_version) {
-					await setMaintenanceMode(parachain_api, false);
-
 					console.log(`\n\🛰️  Parachain ${resolvedId} has successfully upgraded from ` +
 						`version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
 					parachains_info[resolvedId].has_updated = true;
@@ -541,6 +539,19 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 				await waitForExtraOutput();
 			}
 		}
+	}
+
+	for (const parachain of config.parachains) {
+		const { resolvedId } = parachain as UpgradableResolvedParachainConfig;
+		let parachain_api: ApiPromise = await connect(
+			parachains_info[resolvedId].first_node,
+			loadTypeDef(config.types)
+		);
+
+		await setMaintenanceMode(parachain_api, false);
+
+		await parachain_api.disconnect();
+		await waitForExtraOutput();
 	}
 
 	if (parachains_upgrade_failed || relay_upgrade_failed) {
@@ -730,8 +741,6 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 				const spec_version = await getSpecVersion(parachain_api);
 
 				if (spec_version != parachains_info[resolvedId].old_version) {
-					await setMaintenanceMode(parachain_api, false);
-					
 					console.log(`\n\🛰️  Parachain ${resolvedId} has successfully upgraded from ` +
 						`version ${parachains_info[resolvedId].old_version} to ${spec_version}!`);
 					parachains_info[resolvedId].has_updated = true;
@@ -744,6 +753,19 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 				await waitForExtraOutput();
 			}
 		}
+	}
+
+	for (const parachain of config.parachains) {
+		const { resolvedId } = parachain as UpgradableResolvedParachainConfig;
+		let parachain_api: ApiPromise = await connect(
+			parachains_info[resolvedId].first_node,
+			loadTypeDef(config.types)
+		);
+
+		await setMaintenanceMode(parachain_api, false);
+
+		await parachain_api.disconnect();
+		await waitForExtraOutput();
 	}
 
 	if (parachains_upgrade_failed) {

@@ -166,6 +166,7 @@ export async function setMaintenanceMode(api: ApiPromise, value: boolean) {
 	try {
 		const tx = value ? api.tx.maintenance.enable() : api.tx.maintenance.disable();
 		await executeTransaction(api, superuser, api.tx.sudo.sudo(tx));
+		console.log(`Maintenance mode ${value ? `engaged` : `disengaged`}.`);
 	} catch (_) {
 		console.error('Couldn\'t set maintenance mode. The maintenance pallet probably does not exist.');
 	}
