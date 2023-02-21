@@ -173,7 +173,6 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 	// Then launch each parachain
 	for (const parachain of config.parachains) {
 		const { resolvedId, balance, resolvedSpec } = parachain;
-		const name = `para-${resolvedId}`;
 
 		const bin = resolve(config_dir, parachain.bin);
 		if (!fs.existsSync(bin)) {
@@ -897,8 +896,9 @@ async function resolveParachainSpecs(
 	console.log(`\n🧹 Resolving parachain specs...`);
 	const resolvedConfig = config as ResolvedLaunchConfig;
 	for (const parachain of resolvedConfig.parachains) {
-		const { bin, id, chain } = parachain;
-		const name = `para-${id || chain || `unnamed-${Date.now()}-$`}`
+		const { bin, id, chain, specNamePrefix } = parachain;
+		
+		const name = `${specNamePrefix || ''}para-${id || chain || `unnamed-${Date.now()}-$`}`
 
 		let specFile = await generateChainSpec(bin, name, chain);
 		if (parachain.chainInitializer) {

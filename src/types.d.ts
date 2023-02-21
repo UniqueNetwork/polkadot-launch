@@ -58,6 +58,7 @@ export interface ParachainConfig extends WithChainInitializer {
 	id?: string;
 	balance: string;
 	chain?: string;
+	specNamePrefix?: string;
 	/**
 	 * If `true` - then this chain already has data
 	 *
