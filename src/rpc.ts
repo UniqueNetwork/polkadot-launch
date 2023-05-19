@@ -151,8 +151,14 @@ export async function upgradeParachainRuntime(
 	const superuser = privateKey("//Alice");
 
 	console.log(`--- Authorizing the parachain runtime upgrade from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. ---`);
-	await executeTransaction(api, superuser, api.tx.sudo
-		.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash), 0), finalization);
+	try {
+		await executeTransaction(api, superuser, api.tx.sudo
+			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash, true), 0), finalization);
+	} catch (err) {
+		console.warn('Failed to authorize upgrade with the latest API. Trying authorizing the old way.');
+		await executeTransaction(api, superuser, api.tx.sudo
+			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash), 0), finalization);
+	}
 
 	console.log(`--- Upgrading the parachain runtime. ---`);
 	await executeTransaction(api, superuser, api.tx.sudo
