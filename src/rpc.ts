@@ -155,7 +155,7 @@ export async function upgradeParachainRuntime(
 		await executeTransaction(api, superuser, api.tx.sudo
 			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash, true), 0), finalization);
 	} catch (err) {
-		console.warn('Failed to authorize upgrade with the latest API. Trying authorizing the old way.');
+		console.warn('Failed to authorize upgrade with the latest API (as of Polkadot v0.9.41). Trying authorizing the old way.');
 		await executeTransaction(api, superuser, api.tx.sudo
 			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash), 0), finalization);
 	}
