@@ -153,7 +153,7 @@ export async function upgradeParachainRuntime(
 	console.log(`--- Authorizing the parachain runtime upgrade from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. ---`);
 	try {
 		await executeTransaction(api, superuser, api.tx.sudo
-			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash, true), 0), finalization);
+			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash, false), 0), finalization);
 	} catch (err) {
 		console.warn('Failed to authorize upgrade with the latest API (as of Polkadot v0.9.41). Trying authorizing the old way.');
 		await executeTransaction(api, superuser, api.tx.sudo
