@@ -70,7 +70,7 @@ export async function setBalance(
 
 	console.log(`--- Submitting extrinsic to set balance of ${who} to ${value}. ---`);
 	const setBalanceTx = api.tx.balances.forceSetBalance 
-		? api.tx.balances.forceSetBalance(who, value, 0)
+		? api.tx.balances.forceSetBalance(who, value)
 		: api.tx.balances.setBalance(who, value, 0);
 	await executeTransaction(api, superuser, api.tx.sudo.sudo(setBalanceTx), finalization);
 }
