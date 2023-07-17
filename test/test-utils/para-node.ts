@@ -13,7 +13,7 @@ export async function findAvailablePorts(parachainCount: number = 1) {
 	const relayCount = parachainCount + 1;
 	const paraNodeCount = parachainCount * 2; // * 2;
 	const nodeCount = relayCount + paraNodeCount;
-	const portCount = nodeCount * 3;
+	const portCount = nodeCount * 2;
 	const availablePorts = await Promise.all(
 		new Array(portCount).fill(0).map(async (_, index) => {
 			let selectedPort = 0;
@@ -39,9 +39,8 @@ export async function findAvailablePorts(parachainCount: number = 1) {
 	);
 
 	return new Array(nodeCount).fill(0).map((_, index) => ({
-		p2pPort: availablePorts[index * 3 + 0],
-		rpcPort: availablePorts[index * 3 + 1],
-		wsPort: availablePorts[index * 3 + 2],
+		p2pPort: availablePorts[index * 2 + 0],
+		rpcPort: availablePorts[index * 2 + 1],
 	}));
 }
 
@@ -69,7 +68,7 @@ export interface ParachainPorts {
 export interface NodePorts {
 	p2pPort: number;
 	rpcPort: number;
-	wsPort: number;
+	wsPort?: number;
 }
 
 export interface HrmpChannel {
@@ -102,8 +101,8 @@ export async function startParachainNodes(options: ParachainOptions): Promise<{
 		1;
 	const parachainArray = new Array(numberOfParachains).fill(0);
 	nodeStarted = true;
-	// Each node will have 3 ports. There are 2 nodes per parachain, and as many relaychain nodes.
-	// So numberOfPorts =  3 * 2 * parachainCount
+	// Each node will have 2 ports. There are 2 nodes per parachain, and as many relaychain nodes.
+	// So numberOfPorts =  2 * 2 * parachainCount
 	const ports = await findAvailablePorts(numberOfParachains);
 
 	//Build hrmpChannels, all connected to first parachain
@@ -133,7 +132,6 @@ export async function startParachainNodes(options: ParachainOptions): Promise<{
 					name: RELAY_CHAIN_NODE_NAMES[i],
 					port: ports[i].p2pPort,
 					rpcPort: ports[i].rpcPort,
-					wsPort: ports[i].wsPort,
 				};
 			}),
 			genesis: {
@@ -158,7 +156,6 @@ export async function startParachainNodes(options: ParachainOptions): Promise<{
 					{
 						port: ports[i * 2 + numberOfParachains + 1].p2pPort,
 						rpcPort: ports[i * 2 + numberOfParachains + 1].rpcPort,
-						wsPort: ports[i * 2 + numberOfParachains + 1].wsPort,
 						name: "alice",
 						flags: [
 							"--log=info,rpc=trace,evm=trace,ethereum=trace",
@@ -171,7 +168,6 @@ export async function startParachainNodes(options: ParachainOptions): Promise<{
 					{
 						port: ports[i * 2 + numberOfParachains + 2].p2pPort,
 						rpcPort: ports[i * 2 + numberOfParachains + 2].rpcPort,
-						wsPort: ports[i * 2 + numberOfParachains + 2].wsPort,
 						name: "bob",
 						flags: [
 							"--log=info,rpc=trace,evm=trace,ethereum=trace",
@@ -207,7 +203,6 @@ export async function startParachainNodes(options: ParachainOptions): Promise<{
 			return {
 				p2pPort: ports[i].p2pPort,
 				rpcPort: ports[i].rpcPort,
-				wsPort: ports[i].wsPort,
 			};
 		}),
 
@@ -218,12 +213,10 @@ export async function startParachainNodes(options: ParachainOptions): Promise<{
 					{
 						p2pPort: ports[i * 2 + numberOfParachains + 1].p2pPort,
 						rpcPort: ports[i * 2 + numberOfParachains + 1].rpcPort,
-						wsPort: ports[i * 2 + numberOfParachains + 1].wsPort,
 					},
 					{
 						p2pPort: ports[i * 2 + numberOfParachains + 2].p2pPort,
 						rpcPort: ports[i * 2 + numberOfParachains + 2].rpcPort,
-						wsPort: ports[i * 2 + numberOfParachains + 2].wsPort,
 					},
 				],
 			};

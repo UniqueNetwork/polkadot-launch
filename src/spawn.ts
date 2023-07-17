@@ -134,7 +134,7 @@ export async function getParachainIdFromSpec(
 export function startNode(
 	bin: string,
 	name: string,
-	wsPort: number,
+	wsPort: number | undefined,
 	rpcPort: number | undefined,
 	port: number,
 	nodeKey: string,
@@ -145,13 +145,15 @@ export function startNode(
 	// TODO: Make DB directory configurable rather than just `tmp`
 	let args = [
 		"--chain=" + spec,
-		"--ws-port=" + wsPort,
 		"--port=" + port,
 		"--node-key=" + nodeKey,
 		"--" + name.toLowerCase(),
 	];
 	if (rpcPort) {
 		args.push("--rpc-port=" + rpcPort);
+	}
+	if (wsPort) {
+		args.push("--ws-port=" + wsPort);
 	}
 
 	if (basePath) {
@@ -220,17 +222,21 @@ export async function exportGenesisState(
 // Start a collator node for a parachain.
 export function startCollator(
 	bin: string,
-	wsPort: number,
+	wsPort: number | undefined,
 	rpcPort: number | undefined,
 	port: number,
 	options: CollatorOptions
 ) {
 	return new Promise<void>(function (resolve) {
 		// TODO: Make DB directory configurable rather than just `tmp`
-		let args = ["--ws-port=" + wsPort, "--port=" + port];
+		let args = ["--port=" + port];
 		const { basePath, name, onlyOneParachainNode, flags, spec, relaySpec } =
 			options;
 
+		if (wsPort) {
+			args.push("--ws-port=" + wsPort);
+			console.log(`Added --ws-port=" + ${wsPort}`);
+		}
 		if (rpcPort) {
 			args.push("--rpc-port=" + rpcPort);
 			console.log(`Added --rpc-port=" + ${rpcPort}`);
@@ -283,12 +289,12 @@ export function startCollator(
 			console.log(`Added ${flags_collator} to collator`);
 		}
 
-		p[wsPort] = spawn(bin, args);
+		p[port] = spawn(bin, args);
 
-		let log = fs.createWriteStream(`${wsPort}.log`);
+		let log = fs.createWriteStream(`${port}.log`);
 
-		p[wsPort].stdout.pipe(log);
-		p[wsPort].stderr.on("data", function (chunk) {
+		p[port].stdout.pipe(log);
+		p[port].stderr.on("data", function (chunk) {
 			let message = chunk.toString();
 			let ready =
 				message.includes("Running JSON-RPC WS server:") ||

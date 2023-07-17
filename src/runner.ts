@@ -76,6 +76,12 @@ function delay(ms: number) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function nodeConnectionPort(node: {wsPort?: number, rpcPort?: number}) {
+	if(node.wsPort) return node.wsPort;
+	if(node.rpcPort) return node.rpcPort;
+	throw new Error('no connection port found');
+}
+
 // keep track of registered parachains
 let registeredParachains: { [key: string]: boolean } = {};
 
@@ -162,9 +168,11 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 		);
 	}
 
+	const firstRelayNode = config.relaychain.nodes[0];
+
 	// Connect to the first relay chain node to submit the extrinsic.
 	let relayChainApi: ApiPromise = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(firstRelayNode),
 		loadTypeDef(config.types)
 	);
 
@@ -196,10 +204,12 @@ export async function run(config_dir: string, rawConfig: LaunchConfig): Promise<
 			await applyAuraKey(node as KeyedParachainNodeConfig, config_dir);
 		}
 
+		const firstParaNode = parachain.nodes[0];
+
 		if (parachain.prepopulated) {
 			console.log('Restoring parachain state, using data from first collator');
 			let parachainApi: ApiPromise = await connect(
-				parachain.nodes[0].wsPort,
+				nodeConnectionPort(firstParaNode),
 				{}
 			);
 			const block = await parachainApi.rpc.chain.getBlock();
@@ -317,7 +327,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 
 	// Fetch information on the relay chain specifics
 	let relay_chain_api: ApiPromise = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(config.relaychain.nodes[0]),
 		loadTypeDef(config.types)
 	);
 
@@ -377,13 +387,15 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		const new_bin = resolve(config_dir, (parachain as UpgradableResolvedParachainConfig).upgradeBin);
 
 		if (parachain.nodes.length > 0) {
+			const firstParaNodePort = nodeConnectionPort(parachain.nodes[0]);
+
 			let parachain_api: ApiPromise = await connect(
-				parachain.nodes[0].wsPort,
+				firstParaNodePort,
 				loadTypeDef(config.types)
 			);
 
 			parachains_info[resolvedId] = {
-				first_node: parachain.nodes[0].wsPort,
+				first_node: firstParaNodePort,
 				old_version: await getSpecVersion(parachain_api),
 				has_updated: false,
 				old_tag: await getGitRepositoryTag(old_bin),
@@ -401,7 +413,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 			let account = parachainAccount(resolvedId); // todo
 
 			console.log("\nStopping the next collator node...");
-			await killProcess(node.wsPort);
+			await killProcess(node.port);
 
 			console.log(
 				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
@@ -423,14 +435,14 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 		}
 	}
 
-	console.log("\n🌗 All parachain collators restarted with the new binaries."); 
+	console.log("\n🌗 All parachain collators restarted with the new binaries.");
 
 	// Simple parachains are not tested.
 
 	// If it is not needed to upgrade runtimes themselves, the job is done!
-	if (nodes_only) 
+	if (nodes_only)
 		return;
-	
+
 	let relay_upgrade_failed, parachains_upgrade_failed = false;
 
 	console.log(`\n🚦 Starting timeout for the next epoch before upgrading the relay runtime code` +
@@ -439,7 +451,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 
 	// Connect to alice on the relay (the first node, assumed to be the superuser) and run a forkless runtime upgrade
 	relay_chain_api = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(config.relaychain.nodes[0]),
 		loadTypeDef(config.types)
 	);
 
@@ -449,7 +461,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	await waitForExtraOutput();
 	// Re-establish connection to the node (strange behavior otherwise) and get the renewed relay info
 	relay_chain_api = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(config.relaychain.nodes[0]),
 		loadTypeDef(config.types)
 	);
 
@@ -463,7 +475,7 @@ export async function runThenTryUpgrade(config_dir: string, raw_config: LaunchCo
 	await waitForExtraOutput();
 	// Re-establish connection to the node (strange behavior otherwise) and get the runtime upgrade validation delay for parachains
 	relay_chain_api = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(config.relaychain.nodes[0]),
 		loadTypeDef(config.types)
 	);
 
@@ -600,7 +612,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 
 	// Fetch information on the relay chain specifics
 	let relay_chain_api: ApiPromise = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(config.relaychain.nodes[0]),
 		loadTypeDef(config.types)
 	);
 
@@ -629,12 +641,12 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 
 		if (parachain.nodes.length > 0) {
 			let parachain_api: ApiPromise = await connect(
-				parachain.nodes[0].wsPort,
+				nodeConnectionPort(parachain.nodes[0]),
 				loadTypeDef(config.types)
 			);
 
 			parachains_info[resolvedId] = {
-				first_node: parachain.nodes[0].wsPort,
+				first_node: nodeConnectionPort(parachain.nodes[0]),
 				old_version: await getSpecVersion(parachain_api),
 				has_updated: false,
 				old_tag: await getGitRepositoryTag(old_bin),
@@ -652,7 +664,7 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 			let account = parachainAccount(resolvedId); // todo
 
 			console.log("\nStopping the next collator node...");
-			await killProcess(node.wsPort);
+			await killProcess(node.port);
 
 			console.log(
 				`Starting a Collator for parachain ${resolvedId}: ${account}, Collator port : ${port} wsPort : ${wsPort} rpcPort : ${rpcPort}`
@@ -674,18 +686,18 @@ export async function runThenTryUpgradeParachains(config_dir: string, raw_config
 		}
 	}
 
-	console.log("\n🌗 All parachain collators restarted with the new binaries."); 
+	console.log("\n🌗 All parachain collators restarted with the new binaries.");
 
 	// Simple parachains are not tested.
 
 	// If it is not needed to upgrade runtimes themselves, the job is done!
-	if (nodes_only) 
+	if (nodes_only)
 		return;
 
 	let parachains_upgrade_failed = false;
 	// Re-establish connection to the node (strange behavior otherwise) and get the runtime upgrade validation delay for parachains
 	relay_chain_api = await connect(
-		config.relaychain.nodes[0].wsPort,
+		nodeConnectionPort(config.relaychain.nodes[0]),
 		loadTypeDef(config.types)
 	);
 
@@ -897,7 +909,7 @@ async function resolveParachainSpecs(
 	const resolvedConfig = config as ResolvedLaunchConfig;
 	for (const parachain of resolvedConfig.parachains) {
 		const { bin, id, chain, specNamePrefix } = parachain;
-		
+
 		const name = `${specNamePrefix || ''}para-${id || chain || `unnamed-${Date.now()}-$`}`
 
 		let specFile = await generateChainSpec(bin, name, chain);

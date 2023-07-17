@@ -23,7 +23,7 @@ export interface LaunchConfig {
 }
 export interface ParachainNodeConfig {
 	rpcPort?: number;
-	wsPort: number;
+	wsPort?: number;
 	port: number;
 	basePath?: string;
 	name?: string;
@@ -97,7 +97,7 @@ export interface RelayChainConfig extends WithChainInitializer {
 	nodes: {
 		name: string;
 		basePath?: string;
-		wsPort: number;
+		wsPort?: number;
 		rpcPort?: number;
 		nodeKey?: string;
 		port: number;
