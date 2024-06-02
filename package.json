@@ -23,6 +23,7 @@
 		"@types/chai": "^4.2.22",
 		"@types/mocha": "^9.0.0",
 		"chai": "^4.3.4",
+		"enquirer": "^2.3.6",
 		"ethers": "^5.4.7",
 		"filter-console": "^0.1.1",
 		"libp2p-crypto": "^0.20.0",

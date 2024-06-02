@@ -1,6 +1,7 @@
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { Keyring } from "@polkadot/api";
-import { cryptoWaitReady } from "@polkadot/util-crypto";
+import { cryptoWaitReady, blake2AsHex } from "@polkadot/util-crypto";
+import fs from "fs";
 
 const filterConsole = require("filter-console");
 
@@ -130,6 +131,186 @@ export async function setBalance(
 					reject(`Transaction Error`);
 				}
 			});
+	});
+}
+
+// Perform a forkless runtime upgrade on the relay
+export async function upgradeRelayRuntime(
+	api: ApiPromise,
+	wasm: string,
+	finalization: boolean = false,
+	old_tag?: string,
+	new_tag?: string,
+) { 
+	return new Promise<void>(async (resolvePromise, reject) => {
+		await cryptoWaitReady();
+
+		const keyring = new Keyring({ type: "sr25519" });
+		const alice = keyring.addFromUri("//Alice");
+
+		const nonce = Number((await api.query.system.account(alice.address)).nonce);
+		const code = fs.readFileSync(wasm).toString('hex');
+
+		console.log(
+			`--- Upgrading the relay chain runtime from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. (nonce: ${nonce}) ---`
+		);
+		const unsub = await api.tx.sudo
+			.sudoUncheckedWeight(api.tx.system.setCode(`0x${code}`), 0)
+			.signAndSend(alice, { nonce: nonce, era: 0 }, (result) => {
+				console.log(`Current status is ${result.status}`);
+				if (result.status.isInBlock) {
+					console.log(
+						`Transaction included at blockHash ${result.status.asInBlock}`
+					);
+					if (finalization) {
+						console.log("Waiting for finalization...");
+					} else {
+						unsub();
+						resolvePromise();
+					}
+				} else if (result.status.isFinalized) {
+					console.log(
+						`Transaction finalized at blockHash ${result.status.asFinalized}`
+					);
+					unsub();
+					resolvePromise();
+				} else if (result.isError) {
+					console.log(`Transaction Error`);
+					reject(`Transaction Error`);
+				}
+			});
+	});
+}
+
+// Perform a forkless runtime upgrade on a parachain
+export async function upgradeParachainRuntime(
+	api: ApiPromise,
+	wasm: string,
+	finalization: boolean = true,
+	old_tag?: string,
+	new_tag?: string,
+) { 
+	const code = fs.readFileSync(wasm);
+	const codeHash = blake2AsHex(code); // 256
+
+	await new Promise<void>(async (resolvePromise, reject) => {
+		await cryptoWaitReady();
+
+		const keyring = new Keyring({ type: "sr25519" });
+		const alice = keyring.addFromUri("//Alice");
+
+		const nonce = Number((await api.query.system.account(alice.address)).nonce);
+
+		console.log(
+			`--- Authorizing the parachain runtime upgrade from ${old_tag ? old_tag : wasm} ${new_tag ? `to ${new_tag}` : ""}. (nonce: ${nonce}) ---`
+		);
+		const unsub = await api.tx.sudo
+			.sudoUncheckedWeight(api.tx.parachainSystem.authorizeUpgrade(codeHash), 0)
+			.signAndSend(alice, { nonce: nonce, era: 0 }, (result) => {
+				console.log(`Current status is ${result.status}`);
+				if (result.status.isInBlock) {
+					console.log(
+						`Transaction included at blockHash ${result.status.asInBlock}`
+					);
+					if (finalization) {
+						console.log("Waiting for finalization...");
+					} else {
+						unsub();
+						resolvePromise();
+					}
+				} else if (result.status.isFinalized) {
+					console.log(
+						`Transaction finalized at blockHash ${result.status.asFinalized}`
+					);
+					unsub();
+					resolvePromise();
+				} else if (result.isError) {
+					console.log(`Transaction Error`);
+					reject(`Transaction Error`);
+				}
+			});
+	});
+
+	return new Promise<void>(async (resolvePromise, reject) => {
+		await cryptoWaitReady();
+
+		const keyring = new Keyring({ type: "sr25519" });
+		const alice = keyring.addFromUri("//Alice");
+
+		const nonce = Number((await api.query.system.account(alice.address)).nonce);
+
+		console.log(
+			`--- Upgrading the parachain runtime. (nonce: ${nonce}) ---`
+		);
+		const unsub = await api.tx.sudo
+		.sudoUncheckedWeight(api.tx.parachainSystem.enactAuthorizedUpgrade(`0x${code.toString('hex')}`), 0)
+		.signAndSend(alice, { nonce: nonce, era: 0 }, (result) => {
+			console.log(`Current status is ${result.status}`);
+			if (result.status.isInBlock) {
+				console.log(
+					`Transaction included at blockHash ${result.status.asInBlock}`
+				);
+				if (finalization) {
+					console.log("Waiting for finalization...");
+				} else {
+					unsub();
+					resolvePromise();
+				}
+			} else if (result.status.isFinalized) {
+				console.log(
+					`Transaction finalized at blockHash ${result.status.asFinalized}`
+				);
+				unsub();
+				resolvePromise();
+			} else if (result.isError) {
+				console.log(`Transaction Error`);
+				reject(`Transaction Error`);
+			}
+		});
+	});
+}
+
+export interface RelayInfo {
+	specVersion: number,
+	epochLength: number,
+	blockTime: number,
+}
+
+export async function getSpecVersion(
+	api: ApiPromise,
+): Promise<number> { 
+	return new Promise(async (resolve) => {
+		const info = api.consts.system.version.specVersion.toNumber();
+  		resolve(info);
+	});
+}
+
+export async function getRelayInfo(
+	api: ApiPromise,
+): Promise<RelayInfo> { 
+	return new Promise(async (resolve) => {
+		const info = {
+			specVersion: api.consts.system.version.specVersion.toNumber(),
+			epochLength: api.consts.babe.epochDuration.toNumber(),
+			blockTime: api.consts.babe.expectedBlockTime.toNumber(),
+		};
+  		resolve(info);
+	});
+}
+
+export async function getCodeValidationDelay(
+	api: ApiPromise,
+): Promise<number> { 
+	return new Promise(async (resolve) => {
+		const { validationUpgradeDelay, minimumValidationUpgradeDelay } = (await api.query.configuration.activeConfig()).toJSON() as any;
+		let delay = 0;
+		if (validationUpgradeDelay !== undefined) {
+			delay = validationUpgradeDelay;
+			if (minimumValidationUpgradeDelay !== undefined) {
+				delay = Math.max(delay, minimumValidationUpgradeDelay);
+			}
+		}
+  		resolve(delay);
 	});
 }
 

@@ -2,6 +2,8 @@
 
 Simple CLI tool to launch a local [Polkadot](https://github.com/paritytech/polkadot/) test network.
 
+Alternatively, the tool can be used to test a forkless runtime upgrade of a relay and parachains in tandem.
+
 ## Install
 
 ```
@@ -46,6 +48,8 @@ cp ./target/release/polkadot-parachain ../polkadot-launch/bin/polkadot-parachain
 polkadot-launch config.json
 ```
 
+For testing forkless runtime upgrade append the `--test-upgrade` flag.
+
 ### Configuration File
 
 The required configuration file defines the properties of the network you want to set up.
@@ -56,6 +60,21 @@ You can see the examples:
 - [config.js](config.js)
 
 You may find the .js alternative more convenient if you need comments, trailing commas or if you prefer do dedup some portions of the config.
+
+### Forkless Runtime Upgrade Testing
+
+In order to test forkless runtime upgrades, the following arguments will have to be present in the configuration file:
+
+- `relaychain`
+  - `upgradeBin`
+  - `upgradeWasm`
+- `parachains`
+  - `upgradeBin`
+  - `upgradeWasm`
+  - `nodes`
+    - `auraKey` (Optional)
+
+Their description is provided alongside the other arguments in the next subsections.
 
 #### `relaychain`
 
@@ -72,6 +91,11 @@ You may find the .js alternative more convenient if you need comments, trailing 
   - `flags`: Any additional command line flags you want to add when starting your node.
 - `genesis`: A JSON object of the properties you want to modify from the genesis configuration.
   Non-specified properties will be unchanged from the original genesis configuration.
+- `upgradeBin`: The path of the *modified* [Polkadot relay chain binary](https://github.com/paritytech/polkadot/) 
+  used to upgrade the relay chain. Its spec version must be higher. Optional if not for testing runtime upgrades.
+- `upgradeWasm`: The path of the higher-versioned WASM code generated along the binary. 
+  For example `<path/to/polkadot>/target/release/wbuild/rococo-runtime/rococo_runtime.compact.compressed.wasm`.
+  Optional if not for testing runtime upgrades.
 
 These variable are fed directly into the Polkadot binary and used to spawn a node:
 
@@ -120,15 +144,25 @@ All `genesis` properties can be found in the chainspec output:
   blocks for your parachain. For example
   `<path/to/substrate-parachain-template>/target/release/polkadot-parachain`.
 - `id`: The id to assign to this parachain. Must be unique.
-- `wsPort`: The websocket port for this node.
-- `port`: The TCP port for this node.
-- `balance`: (Optional) Configure a starting amount of balance on the relay chain for this chain's
-  account ID.
 - `chain`: (Optional) Configure an alternative chain specification to be used for launching the
   parachain.
-- `basePath`: The directory used for the blockchain db and other outputs. When unspecified, we use
-  `--tmp`.
-- `flags`: Any additional command line flags you want to add when starting your node.
+- `balance`: (Optional) Configure a starting amount of balance on the relay chain for this chain's
+  account ID.
+- `nodes`: An array of nodes that will be validators on the relay chain.
+  - `wsPort`: The websocket port for this node.
+  - `port`: The TCP port for this node.
+  - `name`: An arbitrary moniker for this node.
+  - `basePath`: The directory used for the blockchain db and other outputs. When unspecified, we use
+    `--tmp`.
+  - `auraKey`: A path to a file containing a JSON aura key insertion. 
+    Optional, and is used only when testing runtime upgrades.
+  - `flags`: Any additional command line flags you want to add when starting your node.
+- `upgradeBin`: The path of the *modified* [collator node
+  binary](https://github.com/substrate-developer-hub/substrate-parachain-template)
+  used to upgrade the parachain. Its spec version must be higher. Optional if not for testing runtime upgrades.
+- `upgradeWasm`: The path of the higher-versioned WASM code generated along the binary. 
+  For example `<path/to/unique>/target/release/wbuild/unique-runtime/unique_runtime.compact.compressed.wasm`.
+  Optional if not for testing runtime upgrades.
 
 These variables are fed directly into the collator binary and used to spawn a node:
 

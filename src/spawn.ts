@@ -2,6 +2,7 @@ import {
 	spawn,
 	ChildProcessWithoutNullStreams,
 	execFile as ex,
+	exec,
 } from "child_process";
 import util from "util";
 import fs from "fs";
@@ -38,13 +39,22 @@ export async function generateChainSpec(bin: string, chain: string) {
 }
 
 // Output the chainspec of a node using `--raw` from a JSON file.
-export async function generateChainSpecRaw(bin: string, chain: string) {
+export async function generateChainSpecRaw(bin: string, chain: string, id?: string) {
 	console.log(); // Add a newline in output
 	return new Promise<void>(function (resolve, reject) {
-		let args = ["build-spec", "--chain=" + chain + ".json", "--raw"];
+		let args = ["build-spec", "--raw"];
+		let name: string;
+		if (chain != "") {
+			args.push("--chain=" + chain + ".json");
+			name = chain;
+		} else if (id) {
+			name = id;
+		} else {
+			name = "parachain";
+		}
 
 		p["spec"] = spawn(bin, args);
-		let spec = fs.createWriteStream(`${chain}-raw.json`);
+		let spec = fs.createWriteStream(`${name}-raw.json`);
 
 		// `pipe` since it deals with flushing and  we need to guarantee that the data is flushed
 		// before we resolve the promise.
@@ -258,11 +268,46 @@ export function startCollator(
 			let message = chunk.toString();
 			let ready =
 				message.includes("Running JSON-RPC WS server:") ||
+				message.includes("Imported") ||
 				message.includes("Listening for new connections");
 			if (ready) {
 				resolve();
 			}
 			log.write(message);
+		});
+	});
+}
+
+export async function giveKeyToCollator(
+	rpcPort: number,
+	key: string,
+) {
+	return new Promise<void>(function (resolve, reject) {
+		let args = ["http://127.0.0.1:" + rpcPort, "-H \"Content-Type:application/json;charset=utf-8\"", "-d @" + key];
+		exec('curl ' + args.join(' '), (err, stdout) => {
+			if (stdout.includes("err")) {
+				console.error(`⚠ Failed to send the key to port ${rpcPort}. The key: ${key}`);
+				console.error(stdout);
+				reject(err);
+			} else {
+				console.log(`Granted node on port ${rpcPort} its Aura key`);
+				resolve();
+			}
+		});
+	});
+}
+
+export async function getGitRepositoryTag (
+	location: string,
+): Promise<string> {
+	return new Promise<string>(function (resolve) {
+		const sub = location.substring(0, location.lastIndexOf('/') + 1);
+		exec('git -C ' + sub + ' describe --tags --abbrev=0', (err, stdout, stderr) => {
+			if (stderr.includes("fatal")) {
+				resolve(""); // possibly notify of the error (not a git repository)
+			} else {
+				resolve(stdout.replace(/(\r\n|\n|\r)/gm, ""));
+			}
 		});
 	});
 }
@@ -338,4 +383,10 @@ export function killAll() {
 	for (const key of Object.keys(p)) {
 		p[key].kill();
 	}
+}
+
+// Kill a process spawned and tracked by this file.
+export function killProcess(key: string | number) {
+	p[key].kill('SIGINT');
+	console.log(`Process ${key} stopped.`);
 }
